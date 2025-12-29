@@ -1,0 +1,1 @@
+const CONFIG={DEFAULT_SERVER_URL:"https://ai-assistant-api.aimegatron.com",APP_VERSION:"1.0.0",APP_NAME:"Perplexity Batch Question Assistant"};"undefined"!=typeof module&&module.exports&&(module.exports=CONFIG);
