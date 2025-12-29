@@ -1,4 +1,5 @@
-const BROWSER_LANG = chrome.i18n.getUILanguage().toLowerCase().startsWith("zh") ? "zh" : "en";
+// Force default UI language to English to keep the extension consistent for all users.
+const BROWSER_LANG = "en";
 
 const KEY_MAP = {
   title: "title",
@@ -305,6 +306,7 @@ function generateUUID() {
   });
 }
 
+// Handle adding questions from the textarea into the queue.
 function handleAddQuestions() {
   const input = questionsInput.value.trim();
   if (!input) {
@@ -339,15 +341,18 @@ function handleAddQuestions() {
   }
 }
 
+// Clear the textarea without touching the queue.
 function handleClearInput() {
   questionsInput.value = "";
 }
 
+// Persist the user's preference for reusing the same conversation tab.
 function handleReuseToggle() {
   reuseConversation = !!reuseConversationToggle.checked;
   chrome.storage.local.set({ reuseConversation });
 }
 
+// Start processing pending questions, honoring the reuseConversation flag.
 async function handleStart() {
   if (questions.length === 0) {
     addLog(t("messages.noQuestions"), "warning");
@@ -400,12 +405,14 @@ async function handleStart() {
   processNextQuestion();
 }
 
+// Pause the current run; resumes from the same question later.
 function handlePause() {
   isPaused = true;
   updateControlButtons();
   addLog(t("messages.executionPaused"), "warning");
 }
 
+// Resume processing after a pause.
 function handleResume() {
   isPaused = false;
   updateControlButtons();
@@ -413,6 +420,7 @@ function handleResume() {
   processNextQuestion();
 }
 
+// Stop the current run and reset in-flight questions back to pending.
 function handleStop() {
   isRunning = false;
   isPaused = false;
@@ -436,6 +444,7 @@ function handleStop() {
   }
 }
 
+// Move all failed questions back to pending so they can be retried.
 function handleRetryFailed() {
   if (isRunning) {
     addLog(t("messages.pleaseStopFirst"), "warning");
@@ -458,6 +467,7 @@ function handleRetryFailed() {
   addLog(t("messages.resetFailed").replace("{count}", failed.length), "success");
 }
 
+// Pull the next pending question and send it to the background script.
 async function processNextQuestion() {
   if (!isRunning || isPaused) return;
 
@@ -512,6 +522,7 @@ async function processNextQuestion() {
   }
 }
 
+// Apply the result from the content script and advance the queue.
 function handleQuestionComplete(result) {
   const question = questions.find((item) => item.id === result.questionId);
   if (!question || question.status === "completed" || question.status === "failed") {
@@ -544,23 +555,7 @@ function handleQuestionComplete(result) {
   }
 }
 
-function normalizeExportSources(sources) {
-  if (!Array.isArray(sources)) return [];
-  return sources.map((src) => {
-    const url = src?.url || src?.link || "";
-    const domain = src?.domain || (url ? safeGetDomain(url) : "");
-    return { ...src, url, domain };
-  });
-}
-
-function safeGetDomain(url) {
-  try {
-    return new URL(url).hostname;
-  } catch (error) {
-    return "";
-  }
-}
-
+// Export all questions with metadata to JSON (including normalized sources).
 function handleExport() {
   if (questions.length === 0) {
     addLog(t("messages.noResults"), "warning");
@@ -640,6 +635,7 @@ function formatSourceForExport(source) {
   };
 }
 
+// Trigger file selection for JSON import.
 function handleImportClick() {
   if (isRunning) {
     addLog(t("messages.pleaseStopFirst"), "warning");
@@ -649,6 +645,7 @@ function handleImportClick() {
   importFileInput.click();
 }
 
+// Normalize various import payload shapes (arrays, messages, sequences) into questions.
 function parseImportedQuestions(data) {
   if (!data) return [];
 
@@ -724,6 +721,7 @@ function parseImportedQuestions(data) {
   return collected.filter(Boolean).filter((item) => item.question);
 }
 
+// Read a selected JSON file and merge imported questions into the queue.
 function handleImportFile(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -739,15 +737,6 @@ function handleImportFile(event) {
         return;
       }
 
-      const { questions: imported, checkedPaths } = parseImportedQuestions(json);
-      const pathHint = checkedPaths.length ? checkedPaths.join("/") : "root";
-
-      if (!imported.length) {
-        addLog(`${t("messages.invalidImport")} - no questions found in ${pathHint}`, "error");
-        return;
-      }
-
-      addLog(`✅ Validated import: ${imported.length} question(s) detected`, "success");
       questions = [...questions, ...imported];
       saveQuestions();
       updateUI();
@@ -1003,8 +992,6 @@ async function loadSettings() {
   if (reuseConversationToggle) {
     reuseConversationToggle.checked = reuseConversation;
   }
-function saveReuseConversationSetting(value) {
-  chrome.storage.local.set({ reuseConversation: value });
 }
 
 async function loadQuestions() {

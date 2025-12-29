@@ -1,5 +1,6 @@
 const PERPLEXITY_URL = "https://www.perplexity.ai/";
 
+// Main entry: process a single queued question.
 async function handleProcessQuestion(request, sender, sendResponse) {
   const reuseConversation = request?.reuseConversation !== false; // default: reuse same chat
 
@@ -22,6 +23,7 @@ async function handleProcessQuestion(request, sender, sendResponse) {
   }
 }
 
+// Find or create a Perplexity tab, optionally forcing a fresh conversation.
 async function ensurePerplexityTab(reuseConversation) {
   const existing = await chrome.tabs.query({ url: `${PERPLEXITY_URL}*` });
   let tab = existing[0];
@@ -44,6 +46,7 @@ async function ensurePerplexityTab(reuseConversation) {
   return tab.id;
 }
 
+// Ensure the content script is injected; retry once with a reload.
 async function ensureContentScript(tabId, reuseConversation) {
   const ready = await waitForContentScript(tabId);
   if (ready) return true;
@@ -55,6 +58,7 @@ async function ensureContentScript(tabId, reuseConversation) {
   return waitForContentScript(tabId);
 }
 
+// Poll the tab to see if the content script responds to PING.
 async function waitForContentScript(tabId, attempts = 25) {
   for (let i = 0; i < attempts; i++) {
     try {
@@ -67,6 +71,7 @@ async function waitForContentScript(tabId, attempts = 25) {
   return false;
 }
 
+// Simple sleep helper.
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
