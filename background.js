@@ -1,1 +1,206 @@
-async function handleProcessQuestion(e,t,a){try{const t=await chrome.tabs.query({url:"https://www.perplexity.ai/*"});let r;t.length>0?r=t[0]:(r=await chrome.tabs.create({url:"https://www.perplexity.ai/",active:!0}),await waitForTabLoad(r.id)),await chrome.tabs.update(r.id,{url:"https://www.perplexity.ai/",active:!0}),await sleep(2e3),await waitForTabLoad(r.id);let i=await waitForContentScript(r.id);if(!i&&(await chrome.tabs.reload(r.id),await sleep(3e3),await waitForTabLoad(r.id),i=await waitForContentScript(r.id),!i))throw new Error("Content script not ready even after page refresh. Please try manually refreshing the Perplexity page (F5).");a(await chrome.tabs.sendMessage(r.id,{type:"ASK_QUESTION",question:e.question,questionId:e.questionId}))}catch(e){a({success:!1,error:e.message})}}async function waitForContentScript(e,t=25){for(let a=0;a<t;a++)try{const t=await chrome.tabs.sendMessage(e,{type:"PING"});if(t&&t.ready)return!0}catch(e){await sleep(1200)}return!1}function sleep(e){return new Promise(t=>setTimeout(t,e))}async function handleOpenPerplexity(e,t){try{const e="https://www.perplexity.ai/",a=await chrome.tabs.query({url:"https://www.perplexity.ai/*"});if(a.length>0)await chrome.tabs.update(a[0].id,{url:e,active:!0}),t({success:!0,tabId:a[0].id});else{t({success:!0,tabId:(await chrome.tabs.create({url:e,active:!0})).id})}}catch(e){t({success:!1,error:e.message})}}async function waitForTabLoad(e){if("complete"!==(await chrome.tabs.get(e)).status)return new Promise(t=>{chrome.tabs.onUpdated.addListener(function a(r,i){r===e&&"complete"===i.status&&(chrome.tabs.onUpdated.removeListener(a),setTimeout(t,5e3))})});await sleep(5e3)}async function forwardToSidePanel(e){try{await chrome.runtime.sendMessage(e)}catch(e){}try{await chrome.storage.local.set({pendingMessage:{...e,timestamp:Date.now()}})}catch(e){}}chrome.action.onClicked.addListener(e=>{chrome.sidePanel.open({windowId:e.windowId})}),chrome.runtime.onMessage.addListener((e,t,a)=>{switch(e.type){case"PROCESS_QUESTION":return handleProcessQuestion(e,t,a),!0;case"UPDATE_PROGRESS":case"LOG_MESSAGE":forwardToSidePanel(e);break;case"QUESTION_COMPLETE":return forwardToSidePanel(e),a({received:!0}),!0;case"OPEN_CHATGPT":return handleOpenPerplexity(e,a),!0}}),chrome.tabs.onUpdated.addListener((e,t,a)=>{"complete"===t.status&&a.url&&a.url.includes("perplexity.ai")});
+async function handleProcessQuestion(message, sender, sendResponse) {
+  try {
+    const { reuseConversation: reuseSetting } = await chrome.storage.local.get("reuseConversation");
+    const reuseConversation = reuseSetting !== false;
+
+    let targetTab = null;
+
+    if (reuseConversation) {
+      const existing = await chrome.tabs.query({ url: "https://www.perplexity.ai/*" });
+      if (existing.length > 0) {
+        targetTab = existing[0];
+        await chrome.tabs.update(targetTab.id, { active: true });
+      }
+    }
+
+    if (!targetTab) {
+      targetTab = await chrome.tabs.create({ url: "https://www.perplexity.ai/", active: true });
+      await waitForTabLoad(targetTab.id);
+    } else {
+      await waitForTabLoad(targetTab.id);
+    }
+
+    await ensureContentScriptReady(targetTab.id);
+
+    const prepared = await prepareNewConversation(targetTab.id);
+    if (!prepared) throw new Error("Failed to prepare new conversation");
+    await ensureContentScriptReady(targetTab.id);
+
+    const response = await chrome.tabs.sendMessage(targetTab.id, {
+      type: "ASK_QUESTION",
+      question: message.question,
+      questionId: message.questionId,
+    });
+
+    sendResponse(response);
+  } catch (error) {
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+async function ensureContentScriptReady(tabId) {
+  let ready = await waitForContentScript(tabId);
+
+  if (!ready) {
+    await chrome.tabs.reload(tabId);
+    await sleep(3000);
+    await waitForTabLoad(tabId);
+    ready = await waitForContentScript(tabId);
+  }
+
+  if (!ready) {
+    throw new Error(
+      "Content script not ready even after page refresh. Please try manually refreshing the Perplexity page (F5).",
+    );
+  }
+}
+
+async function prepareNewConversation(tabId) {
+  try {
+    await waitForTabLoad(tabId);
+    await sleep(500);
+    const result = await clickNewThread(tabId);
+    if (result?.clicked) {
+      await sleep(1000);
+      await waitForTabLoad(tabId);
+    }
+    return Boolean(result && (result.clicked || result.hasHome));
+  } catch (error) {
+    return false;
+  }
+}
+
+async function clickNewThread(tabId) {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const selectors = [
+          'button[aria-label="New thread"]',
+          'button[aria-label*="New thread"]',
+          'button:has(svg[aria-label*="New thread"])',
+          'a[aria-label="Home"]',
+          'a[aria-label*="Home"]',
+          'a[href="/"]',
+          'a[href="/home"]',
+        ];
+
+        let clicked = false;
+
+        for (const selector of selectors) {
+          const el = document.querySelector(selector);
+          if (el && typeof el.click === "function") {
+            el.click();
+            clicked = true;
+            break;
+          }
+        }
+
+        const home =
+          document.querySelector('a[href="/"]') ||
+          document.querySelector('a[href="/home"]') ||
+          document.querySelector('a[aria-label*="Home"]');
+
+        return { hasHome: Boolean(home), clicked };
+      },
+    });
+
+    return result?.result || { clicked: false, hasHome: false };
+  } catch (error) {
+    return false;
+  }
+}
+
+async function waitForContentScript(tabId, retries = 25) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: "PING" });
+      if (response && response.ready) return true;
+    } catch (error) {
+      await sleep(1200);
+    }
+    await sleep(200);
+  }
+  return false;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function handleOpenPerplexity(message, sendResponse) {
+  try {
+    const url = "https://www.perplexity.ai/";
+    const tabs = await chrome.tabs.query({ url: "https://www.perplexity.ai/*" });
+    if (tabs.length > 0) {
+      await chrome.tabs.update(tabs[0].id, { url, active: true });
+      sendResponse({ success: true, tabId: tabs[0].id });
+    } else {
+      const newTab = await chrome.tabs.create({ url, active: true });
+      sendResponse({ success: true, tabId: newTab.id });
+    }
+  } catch (error) {
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+async function waitForTabLoad(tabId) {
+  const status = (await chrome.tabs.get(tabId)).status;
+  if (status !== "complete") {
+    return new Promise((resolve) => {
+      chrome.tabs.onUpdated.addListener(function listener(id, info) {
+        if (id === tabId && info.status === "complete") {
+          chrome.tabs.onUpdated.removeListener(listener);
+          setTimeout(resolve, 5000);
+        }
+      });
+    });
+  }
+  await sleep(5000);
+}
+
+async function forwardToSidePanel(message) {
+  try {
+    await chrome.runtime.sendMessage(message);
+  } catch (error) {
+    // ignore runtime send errors
+  }
+
+  try {
+    await chrome.storage.local.set({ pendingMessage: { ...message, timestamp: Date.now() } });
+  } catch (error) {
+    // ignore storage errors
+  }
+}
+
+chrome.action.onClicked.addListener((tab) => {
+  chrome.sidePanel.open({ windowId: tab.windowId });
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  switch (message.type) {
+    case "PROCESS_QUESTION":
+      handleProcessQuestion(message, sender, sendResponse);
+      return true;
+    case "UPDATE_PROGRESS":
+    case "LOG_MESSAGE":
+      forwardToSidePanel(message);
+      break;
+    case "QUESTION_COMPLETE":
+      forwardToSidePanel(message);
+      sendResponse({ received: true });
+      return true;
+    case "OPEN_CHATGPT":
+      handleOpenPerplexity(message, sendResponse);
+      return true;
+    default:
+      break;
+  }
+  return undefined;
+});
+
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status === "complete" && tab.url && tab.url.includes("perplexity.ai")) {
+    // placeholder for future logic
+  }
+});
