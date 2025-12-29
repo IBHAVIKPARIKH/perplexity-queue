@@ -113,6 +113,73 @@ const KEY_MAP = {
   "messages.ready": "msgReady",
 };
 
+const DEFAULT_MESSAGES = {
+  title: "Perplexity Batch Question Assistant",
+  "input.title": "Question Input",
+  "input.placeholder": "Enter one question per line, batch input supported...",
+  "input.addBtn": "Add Questions",
+  "input.clearBtn": "Clear Input",
+  "control.title": "Execution Control",
+  "control.startBtn": "Start",
+  "control.pauseBtn": "Pause",
+  "control.resumeBtn": "Resume",
+  "control.stopBtn": "Stop",
+  "control.retryBtn": "Retry Failed",
+  "stats.total": "Total",
+  "stats.completed": "Completed",
+  "stats.success": "Success",
+  "stats.failed": "Failed",
+  "progress.ready": "Ready",
+  "progress.running": "Running",
+  "progress.processing": "Processing {current}/{total}",
+  "progress.paused": "Paused",
+  "progress.completed": "Completed",
+  "log.title": "Execution Log",
+  "questions.title": "Question List",
+  "questions.exportBtn": "Export Results (JSON)",
+  "questions.clearBtn": "Clear All",
+  "questions.question": "Question",
+  "questions.answer": "Answer",
+  "questions.sources": "Sources",
+  "questions.noQuestions": "No questions yet",
+  "questions.addToStart": "Add questions to begin",
+  "questions.noAnswer": "No answer",
+  "questions.errorInfo": "Error",
+  "questions.unknownError": "Unknown error",
+  "questions.status.pending": "Pending",
+  "questions.status.processing": "Processing",
+  "questions.status.completed": "Completed",
+  "questions.status.failed": "Failed",
+  "messages.pleaseEnterQuestion": "Please enter at least one question",
+  "messages.questionsAdded": "questions added",
+  "messages.noQuestions": "No questions to process",
+  "messages.pleaseAddQuestions": "Please add questions first",
+  "messages.executionPaused": "Execution paused",
+  "messages.executionResumed": "Execution resumed",
+  "messages.executionStopped": "Execution stopped",
+  "messages.noFailedQuestions": "No failed questions",
+  "messages.resetFailed": "{count} failed questions reset",
+  "messages.resultsExported": "Results exported",
+  "messages.pleaseStopFirst": "Please stop current run first",
+  "messages.allCleared": "All questions cleared",
+  "messages.completed": "Completed",
+  "messages.failed": "Failed",
+  "messages.waitingNext": "Waiting for next question...",
+  "messages.allCompleted": "All questions completed",
+  "messages.openingChatGPT": "Opening Perplexity tab...",
+  "messages.cannotOpenChatGPT": "Could not open Perplexity",
+  "messages.error": "Error",
+  "messages.startingBatch": "Starting batch",
+  "messages.foundPending": "Found pending questions: {count}",
+  "messages.waitingPage": "Waiting for Perplexity page to load",
+  "messages.startingFirst": "Starting first question",
+  "messages.submittedWaiting": "Submitted, waiting for answer...",
+  "messages.processingFailed": "Processing failed",
+  "messages.loadedQuestions": "Loaded {count} questions",
+  "messages.loadFailed": "Failed to load previous questions",
+  "messages.ready": "Ready",
+};
+
 let questions = [];
 let isRunning = false;
 let isPaused = false;
@@ -174,7 +241,7 @@ function t(key, params) {
   }
 
   if (!message) {
-    return key;
+    message = DEFAULT_MESSAGES[key] || key;
   }
 
   if (params && typeof params === "object" && !Array.isArray(params)) {

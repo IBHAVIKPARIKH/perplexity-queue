@@ -43,31 +43,10 @@ async function parseSSEWithBackend() {
   if (!currentQuestion) return;
 
   try {
-    const serverUrl =
-      typeof CONFIG !== "undefined" && CONFIG.DEFAULT_SERVER_URL
-        ? CONFIG.DEFAULT_SERVER_URL
-        : "http://localhost:8000";
-
-    const response = await fetch(`${serverUrl}/api/pplx-sse/parse`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        question: currentQuestion.question,
-        sse_chunks: sseChunks,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || "Backend API error");
-    }
-
-    const result = await response.json();
-    currentAnswer = result.answer.answer || "";
-    currentSources = result.answer.sources || [];
-    currentReferences = result.answer.references || [];
+    const stitched = sseChunks.join("\n");
+    currentAnswer = stitched || "No answer received from stream.";
+    currentSources = [];
+    currentReferences = [];
     handleAnswerComplete();
   } catch (error) {
     sendQuestionResult(false, `Backend parsing error: ${error.message}`);
