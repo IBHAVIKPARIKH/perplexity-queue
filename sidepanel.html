@@ -7,112 +7,17 @@
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
-  <!-- Login Modal -->
-  <div id="loginModal" class="login-modal">
-    <div class="login-modal-content">
-      <button class="modal-close-btn" id="closeLoginBtn" aria-label="Close">✕</button>
-      <div class="login-header">
-        <h2 class="login-title" data-i18n="loginTitle">Login</h2>
-      </div>
-      
-      <div class="login-form">
-        <div class="form-group">
-          <label for="loginEmail" data-i18n="loginEmail">Email</label>
-          <input type="email" id="loginEmail" placeholder="your@email.com">
-        </div>
-        <div class="form-group">
-          <label for="loginPassword" data-i18n="loginPassword">Password</label>
-          <input type="password" id="loginPassword" placeholder="******">
-        </div>
-        <button id="loginBtn" class="btn btn-primary" style="width: 100%;" data-i18n="loginLoginBtn">Login</button>
-        <div id="loginError" class="error-message"></div>
-        
-        <div class="register-link">
-          <span data-i18n="loginNoAccount">还没有账号？</span>
-          <button id="goToRegisterBtn" class="btn btn-link" data-i18n="loginGoToRegister">注册账号</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Register Modal -->
-  <div id="registerModal" class="login-modal">
-    <div class="login-modal-content">
-      <button class="modal-close-btn" id="closeRegisterBtn" aria-label="Close">✕</button>
-      <div class="login-header">
-        <h2 class="login-title" data-i18n="registerTitle">Create Account</h2>
-      </div>
-      
-      <div class="login-form">
-        <div class="form-group">
-          <label for="registerEmail" data-i18n="loginEmail">Email</label>
-          <input type="email" id="registerEmail" placeholder="your@email.com">
-        </div>
-        <div class="form-group">
-          <label for="registerPassword" data-i18n="loginPassword">Password</label>
-          <input type="password" id="registerPassword" placeholder="******">
-        </div>
-        <div class="form-group">
-          <label for="registerPasswordConfirm" data-i18n="registerPasswordConfirm">Confirm Password</label>
-          <input type="password" id="registerPasswordConfirm" placeholder="******">
-        </div>
-        <button id="registerBtn" class="btn btn-primary" style="width: 100%;" data-i18n="loginRegisterBtn">Register</button>
-        <div id="registerError" class="error-message"></div>
-        
-        <div class="login-link">
-          <span data-i18n="registerHasAccount">已有账号？</span>
-          <button id="cancelRegisterBtn" class="btn btn-link" data-i18n="registerGoToLogin">立即登录</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Main Panel -->
   <div id="mainPanel" class="container">
-    <!-- Top User Bar (outside header) -->
-    <div id="userInfoBar" class="user-info-bar" style="display: none;">
-      <div class="user-avatar">
-        <svg viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
-        </svg>
+    <header class="hero">
+      <div>
+        <p class="hero-kicker">Perplexity Queue</p>
+        <h1>Batch Question Assistant</h1>
+        <p class="hero-subtitle">
+          Run your questions in batches without creating an account. Just add questions and start the queue.
+        </p>
       </div>
-      <div class="user-name-short" id="userNameShort"></div>
-      <button id="userMenuBtn" class="user-menu-btn" title="Menu">
-        <svg viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
-        </svg>
-      </button>
-      <div id="userDropdownMenu" class="user-dropdown-menu" style="display: none;">
-        <div class="dropdown-header">
-          <div class="dropdown-greeting" data-i18n="headerGreeting">您好</div>
-          <div class="dropdown-email" id="dropdownUserEmail"></div>
-        </div>
-        <div class="dropdown-divider"></div>
-        <button id="logoutBtn" class="dropdown-item logout-item">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
-          </svg>
-          <span data-i18n="headerLogout">登出</span>
-        </button>
-      </div>
-    </div>
-    
-    <!-- Guest Info Bar (outside header) -->
-    <div id="guestInfoBar" class="guest-info-bar" style="display: none;">
-      <div class="guest-info-content">
-        <div class="guest-info-text">
-          <span data-i18n="headerGuestMode">👋 You are browsing in guest mode. Login to use all features.</span>
-        </div>
-        <div class="guest-button-group">
-          <button id="loginStatusBtn" class="btn btn-primary guest-login-btn">
-            🔐 <span data-i18n="headerLogin">Login</span>
-          </button>
-          <button id="registerStatusBtn" class="btn btn-secondary guest-register-btn">
-            ✍️ <span data-i18n="headerRegister">Register</span>
-          </button>
-        </div>
-      </div>
-    </div>
+    </header>
 
     <section class="input-section">
       <h2 data-i18n="input.title">Question Input</h2>
@@ -264,4 +169,3 @@
   <script src="sidepanel.js"></script>
 </body>
 </html>
-
