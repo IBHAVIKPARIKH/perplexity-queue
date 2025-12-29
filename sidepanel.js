@@ -584,45 +584,103 @@ function handleImportClick() {
 }
 
 function parseImportedQuestions(data) {
-  if (!data) return [];
+  if (!data) {
+    return { questions: [], checkedPaths: [], foundPaths: [] };
+  }
 
-  const rawList = Array.isArray(data) ? data : Array.isArray(data.questions) ? data.questions : [];
-  if (!rawList.length) return [];
-
+  const results = [];
+  const checkedPaths = new Set();
+  const foundPaths = new Set();
   const allowedStatuses = new Set(["pending", "completed", "failed"]);
 
-  return rawList
-    .map((item) => {
-      if (typeof item === "string") {
-        return {
-          id: generateUUID(),
-          question: item.trim(),
-          status: "pending",
-          answer: "",
-          sources: [],
-          timestamp: Date.now(),
-          error: null,
-        };
-      }
+  const normalizeItem = (item) => {
+    if (typeof item === "string") {
+      const question = item.trim();
+      if (!question) return null;
+      return {
+        id: generateUUID(),
+        question,
+        status: "pending",
+        answer: "",
+        sources: [],
+        timestamp: Date.now(),
+        error: null,
+      };
+    }
 
-      if (item && typeof item === "object" && typeof item.question === "string") {
-        const status = allowedStatuses.has(item.status) ? item.status : "pending";
-        return {
-          id: item.id || generateUUID(),
-          question: item.question.trim(),
-          status,
-          answer: item.answer || "",
-          sources: Array.isArray(item.sources) ? item.sources : [],
-          timestamp: item.timestamp || Date.now(),
-          completedAt: item.completedAt || null,
-          error: item.error || null,
-        };
-      }
+    if (item && typeof item === "object") {
+      const questionText =
+        typeof item.question === "string"
+          ? item.question.trim()
+          : typeof item.content === "string"
+            ? item.content.trim()
+            : "";
+      if (!questionText) return null;
 
-      return null;
-    })
-    .filter(Boolean)
-    .filter((item) => item.question);
+      const status = allowedStatuses.has(item.status) ? item.status : "pending";
+      return {
+        id: item.id || generateUUID(),
+        question: questionText,
+        status,
+        answer: item.answer || "",
+        sources: Array.isArray(item.sources) ? item.sources : [],
+        timestamp: item.timestamp || Date.now(),
+        completedAt: item.completedAt || null,
+        error: item.error || null,
+      };
+    }
+
+    return null;
+  };
+
+  const collectFromArray = (list, sourceLabel) => {
+    if (!Array.isArray(list)) return;
+    checkedPaths.add(sourceLabel);
+    list.forEach((item) => {
+      const normalized = normalizeItem(item);
+      if (normalized) {
+        foundPaths.add(sourceLabel);
+        results.push(normalized);
+      }
+    });
+  };
+
+  collectFromArray(Array.isArray(data) ? data : null, "root");
+  collectFromArray(data?.questions, "questions");
+  collectFromArray(data?.messages, "messages");
+
+  if (
+    data &&
+    typeof data === "object" &&
+    data.sequences &&
+    typeof data.sequences === "object" &&
+    !Array.isArray(data.sequences)
+  ) {
+    checkedPaths.add("sequences");
+    Object.values(data.sequences).forEach((value) => {
+      if (Array.isArray(value)) {
+        value.forEach((item) => {
+          const normalized = normalizeItem(item);
+          if (normalized) {
+            foundPaths.add("sequences");
+            results.push(normalized);
+          }
+        });
+      } else {
+        const normalized = normalizeItem(value);
+        if (normalized) {
+          foundPaths.add("sequences");
+          results.push(normalized);
+        }
+      }
+    });
+  }
+
+  return {
+    questions: results,
+    checkedPaths: Array.from(checkedPaths),
+    foundPaths: Array.from(foundPaths),
+  };
 }
 
 function handleImportFile(event) {
@@ -633,13 +691,15 @@ function handleImportFile(event) {
   reader.onload = () => {
     try {
       const json = JSON.parse(reader.result);
-      const imported = parseImportedQuestions(json);
+      const { questions: imported, checkedPaths } = parseImportedQuestions(json);
+      const pathHint = checkedPaths.length ? checkedPaths.join("/") : "root";
 
       if (!imported.length) {
-        addLog(t("messages.invalidImport"), "error");
+        addLog(`${t("messages.invalidImport")} - no questions found in ${pathHint}`, "error");
         return;
       }
 
+      addLog(`✅ Validated import: ${imported.length} question(s) detected`, "success");
       questions = [...questions, ...imported];
       saveQuestions();
       updateUI();
