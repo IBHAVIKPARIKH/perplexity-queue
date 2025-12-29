@@ -523,9 +523,33 @@ function handleQuestionComplete(result) {
   }
 }
 
+function normalizeExportSources(sources) {
+  if (!Array.isArray(sources)) return [];
+  return sources.map((src) => {
+    const url = src?.url || src?.link || "";
+    const domain = src?.domain || (url ? safeGetDomain(url) : "");
+    return { ...src, url, domain };
+  });
+}
+
+function safeGetDomain(url) {
+  try {
+    return new URL(url).hostname;
+  } catch (error) {
+    return "";
+  }
+}
+
 function handleExport() {
   if (questions.length === 0) {
     addLog(t("messages.noResults"), "warning");
+    return;
+  }
+
+  const completedQuestions = questions.filter((q) => q.status === "completed");
+  const missingAnswers = completedQuestions.filter((q) => !q.answer);
+  if (missingAnswers.length > 0) {
+    addLog("Cannot export: some completed questions are missing answers.", "warning");
     return;
   }
 
@@ -551,13 +575,24 @@ function handleExport() {
       id: q.id,
       question: q.question,
       status: q.status,
-      answer: q.answer,
-      sources: q.sources,
+      answer: q.answer || "",
+      sources: normalizeExportSources(q.sources),
       timestamp: q.timestamp,
       completedAt: q.completedAt,
       error: q.error,
     })),
   };
+
+  const completedWithoutSources = payload.questions.filter(
+    (q) => q.status === "completed" && q.sources.some((src) => !src.url || !src.domain),
+  );
+  if (completedWithoutSources.length > 0) {
+    addLog(
+      "Cannot export: some completed questions are missing source URLs or domains. Please check results.",
+      "warning",
+    );
+    return;
+  }
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
