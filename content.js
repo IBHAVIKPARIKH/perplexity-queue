@@ -109,15 +109,25 @@ function normalizeSources(chunk) {
     .map((src) => {
       if (!src) return null;
       if (typeof src === "string") {
-        return { title: src, url: "", snippet: "" };
+        return { title: src, url: "", snippet: "", domain: "" };
       }
+      const url = src.url || src.link || "";
       return {
-        title: src.title || src.name || src.url || "",
-        url: src.url || src.link || "",
+        title: src.title || src.name || src.url || src.link || "",
+        url,
         snippet: src.snippet || src.text || src.excerpt || "",
+        domain: url ? safeGetDomain(url) : "",
       };
     })
     .filter((src) => src && (src.title || src.url));
+}
+
+function safeGetDomain(url) {
+  try {
+    return new URL(url).hostname;
+  } catch (error) {
+    return "";
+  }
 }
 
 function handleSSEError(error) {
@@ -394,41 +404,51 @@ function initializeContentScript() {
   }
 }
 
-window.addEventListener("message", (event) => {
-  if (event.source !== window) return;
-  const { type, data } = event.data;
-  switch (type) {
-    case "SSE_DATA":
-      handleSSEData(data);
-      break;
-    case "SSE_DONE":
-      handleSSEDone();
-      break;
-    case "SSE_STREAM_END":
-      handleStreamEnd();
-      break;
-    case "SSE_ERROR":
-      handleSSEError(event.data.error);
-      break;
-    default:
-      break;
-  }
-});
+if (typeof window !== "undefined") {
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    const { type, data } = event.data;
+    switch (type) {
+      case "SSE_DATA":
+        handleSSEData(data);
+        break;
+      case "SSE_DONE":
+        handleSSEDone();
+        break;
+      case "SSE_STREAM_END":
+        handleStreamEnd();
+        break;
+      case "SSE_ERROR":
+        handleSSEError(event.data.error);
+        break;
+      default:
+        break;
+    }
+  });
+}
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "PING") {
-    sendResponse({ ready: true });
-    return true;
-  }
+if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === "PING") {
+      sendResponse({ ready: true });
+      return true;
+    }
 
-  if (message.type === "ASK_QUESTION") {
-    askQuestion(message.question, message.questionId)
-      .then((result) => sendResponse(result))
-      .catch((error) => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
+    if (message.type === "ASK_QUESTION") {
+      askQuestion(message.question, message.questionId)
+        .then((result) => sendResponse(result))
+        .catch((error) => sendResponse({ success: false, error: error.message }));
+      return true;
+    }
 
-  return undefined;
-});
+    return undefined;
+  });
+}
 
-initializeContentScript();
+if (typeof window !== "undefined") {
+  initializeContentScript();
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { extractAnswerFromChunks, normalizeChunkText, normalizeSources };
+}
