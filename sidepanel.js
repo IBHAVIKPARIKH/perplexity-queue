@@ -64,6 +64,8 @@ const KEY_MAP = {
   "questions.exportBtn": "questionsExportBtn",
   "questions.importBtn": "questionsImportBtn",
   "questions.clearBtn": "questionsClearBtn",
+  "settings.reuseChatLabel": "settingsReuseChatLabel",
+  "settings.reuseChatHint": "settingsReuseChatHint",
   "questions.question": "questionsQuestion",
   "questions.answer": "questionsAnswer",
   "questions.sources": "questionsSources",
@@ -148,6 +150,8 @@ const DEFAULT_MESSAGES = {
   "questions.exportBtn": "Export Results (JSON)",
   "questions.importBtn": "Import Questions (JSON)",
   "questions.clearBtn": "Clear All",
+  "settings.reuseChatLabel": "Reuse same chat for all questions",
+  "settings.reuseChatHint": "Keep this on to run every queued question in one chat. Turn off to start a fresh chat per question.",
   "questions.question": "Question",
   "questions.answer": "Answer",
   "questions.sources": "Sources",
@@ -199,6 +203,7 @@ let questions = [];
 let isRunning = false;
 let isPaused = false;
 let currentIndex = 0;
+let reuseConversation = true;
 
 const questionsInput = document.getElementById("questionsInput");
 const addQuestionsBtn = document.getElementById("addQuestionsBtn");
@@ -214,6 +219,7 @@ const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const importFileInput = document.getElementById("importFileInput");
+const reuseConversationToggle = document.getElementById("reuseConversationToggle");
 const progressText = document.getElementById("progressText");
 const progressPercent = document.getElementById("progressPercent");
 const idleButtons = document.getElementById("idleButtons");
@@ -241,7 +247,7 @@ function setupEventListeners() {
   importBtn.addEventListener("click", handleImportClick);
   importFileInput.addEventListener("change", handleImportFile);
   clearAllBtn.addEventListener("click", handleClearAll);
-  reuseConversationToggle.addEventListener("change", handleReuseConversationToggle);
+  reuseConversationToggle.addEventListener("change", handleReuseToggle);
 }
 
 function t(key, params) {
@@ -335,6 +341,11 @@ function handleAddQuestions() {
 
 function handleClearInput() {
   questionsInput.value = "";
+}
+
+function handleReuseToggle() {
+  reuseConversation = !!reuseConversationToggle.checked;
+  chrome.storage.local.set({ reuseConversation });
 }
 
 async function handleStart() {
@@ -478,6 +489,7 @@ async function processNextQuestion() {
       type: "PROCESS_QUESTION",
       question: next.question,
       questionId: next.id,
+      reuseConversation,
     });
 
     if (!response || !response.success) {
@@ -555,13 +567,6 @@ function handleExport() {
     return;
   }
 
-  const completedQuestions = questions.filter((q) => q.status === "completed");
-  const missingAnswers = completedQuestions.filter((q) => !q.answer);
-  if (missingAnswers.length > 0) {
-    addLog("Cannot export: some completed questions are missing answers.", "warning");
-    return;
-  }
-
   const total = questions.length;
   const completed = questions.filter((q) => q.status === "completed").length;
   const failed = questions.filter((q) => q.status === "failed").length;
@@ -585,7 +590,7 @@ function handleExport() {
       question: q.question,
       status: q.status,
       answer: q.answer || "",
-      sources: normalizeExportSources(q.sources),
+      sources: Array.isArray(q.sources) ? q.sources.map(formatSourceForExport) : [],
       timestamp: q.timestamp,
       completedAt: q.completedAt,
       error: q.error,
@@ -618,6 +623,23 @@ function handleExport() {
   addLog(t("messages.resultsExported"), "success");
 }
 
+function formatSourceForExport(source) {
+  const url = (source && source.url) || "";
+  let domain = "";
+  try {
+    domain = url ? new URL(url).hostname : "";
+  } catch (error) {
+    domain = "";
+  }
+
+  return {
+    title: (source && source.title) || "",
+    url,
+    domain,
+    snippet: (source && source.snippet) || "",
+  };
+}
+
 function handleImportClick() {
   if (isRunning) {
     addLog(t("messages.pleaseStopFirst"), "warning");
@@ -628,103 +650,78 @@ function handleImportClick() {
 }
 
 function parseImportedQuestions(data) {
-  if (!data) {
-    return { questions: [], checkedPaths: [], foundPaths: [] };
-  }
+  if (!data) return [];
 
-  const results = [];
-  const checkedPaths = new Set();
-  const foundPaths = new Set();
   const allowedStatuses = new Set(["pending", "completed", "failed"]);
+  const collected = [];
 
-  const normalizeItem = (item) => {
+  const normalizeItem = (item, meta = {}) => {
+    if (!item) return null;
+
     if (typeof item === "string") {
       const question = item.trim();
-      if (!question) return null;
-      return {
-        id: generateUUID(),
-        question,
-        status: "pending",
-        answer: "",
-        sources: [],
-        timestamp: Date.now(),
-        error: null,
-      };
+      return question
+        ? {
+            id: generateUUID(),
+            question,
+            status: "pending",
+            answer: "",
+            sources: [],
+            timestamp: Date.now(),
+            error: null,
+            ...meta,
+          }
+        : null;
     }
 
-    if (item && typeof item === "object") {
-      const questionText =
-        typeof item.question === "string"
-          ? item.question.trim()
-          : typeof item.content === "string"
-            ? item.content.trim()
-            : "";
-      if (!questionText) return null;
-
+    if (typeof item === "object" && typeof item.question === "string") {
       const status = allowedStatuses.has(item.status) ? item.status : "pending";
+      const question = item.question.trim();
+      if (!question) return null;
       return {
         id: item.id || generateUUID(),
-        question: questionText,
+        question,
         status,
         answer: item.answer || "",
         sources: Array.isArray(item.sources) ? item.sources : [],
         timestamp: item.timestamp || Date.now(),
         completedAt: item.completedAt || null,
         error: item.error || null,
+        ...meta,
       };
+    }
+
+    if (typeof item === "object" && typeof item.text === "string") {
+      return normalizeItem(
+        { question: item.text, status: item.status, answer: item.answer, sources: item.sources },
+        meta,
+      );
     }
 
     return null;
   };
 
-  const collectFromArray = (list, sourceLabel) => {
+  const pushFromList = (list, metaFactory) => {
     if (!Array.isArray(list)) return;
-    checkedPaths.add(sourceLabel);
-    list.forEach((item) => {
-      const normalized = normalizeItem(item);
-      if (normalized) {
-        foundPaths.add(sourceLabel);
-        results.push(normalized);
-      }
+    list.forEach((entry, idx) => {
+      const normalized = normalizeItem(entry, metaFactory ? metaFactory(idx) : undefined);
+      if (normalized) collected.push(normalized);
     });
   };
 
-  collectFromArray(Array.isArray(data) ? data : null, "root");
-  collectFromArray(data?.questions, "questions");
-  collectFromArray(data?.messages, "messages");
+  if (Array.isArray(data)) {
+    pushFromList(data);
+  } else if (data && typeof data === "object") {
+    pushFromList(data.questions || data.messages);
 
-  if (
-    data &&
-    typeof data === "object" &&
-    data.sequences &&
-    typeof data.sequences === "object" &&
-    !Array.isArray(data.sequences)
-  ) {
-    checkedPaths.add("sequences");
-    Object.values(data.sequences).forEach((value) => {
-      if (Array.isArray(value)) {
-        value.forEach((item) => {
-          const normalized = normalizeItem(item);
-          if (normalized) {
-            foundPaths.add("sequences");
-            results.push(normalized);
-          }
-        });
-      } else {
-        const normalized = normalizeItem(value);
-        if (normalized) {
-          foundPaths.add("sequences");
-          results.push(normalized);
-        }
-      }
-    });
+    if (data.sequences && typeof data.sequences === "object") {
+      Object.entries(data.sequences).forEach(([sequenceId, sequenceItems]) => {
+        pushFromList(sequenceItems, (idx) => ({ sequenceId, sequenceIndex: idx }));
+      });
+    }
   }
 
-  return {
-    questions: results,
-    checkedPaths: Array.from(checkedPaths),
-    foundPaths: Array.from(foundPaths),
-  };
+  return collected.filter(Boolean).filter((item) => item.question);
 }
 
 function handleImportFile(event) {
@@ -735,6 +732,13 @@ function handleImportFile(event) {
   reader.onload = () => {
     try {
       const json = JSON.parse(reader.result);
+      const imported = parseImportedQuestions(json);
+
+      if (!imported.length) {
+        addLog(t("messages.invalidImport"), "error");
+        return;
+      }
+
       const { questions: imported, checkedPaths } = parseImportedQuestions(json);
       const pathHint = checkedPaths.length ? checkedPaths.join("/") : "root";
 
@@ -984,6 +988,21 @@ function saveQuestions() {
   chrome.storage.local.set({ questions });
 }
 
+async function loadSettings() {
+  try {
+    const stored = await chrome.storage.local.get(["reuseConversation"]);
+    if (stored.reuseConversation === false) {
+      reuseConversation = false;
+    } else {
+      reuseConversation = true;
+    }
+  } catch (error) {
+    reuseConversation = true;
+  }
+
+  if (reuseConversationToggle) {
+    reuseConversationToggle.checked = reuseConversation;
+  }
 function saveReuseConversationSetting(value) {
   chrome.storage.local.set({ reuseConversation: value });
 }
@@ -1017,20 +1036,10 @@ function saveWebSearchSetting(value) {
   chrome.storage.local.set({ useWebSearch: value });
 }
 
-function handleReuseConversationToggle(event) {
-  const value = event.target.checked;
-  saveReuseConversationSetting(value);
-  addLog(
-    value
-      ? t("messages.reuseConversationEnabled") || t("messages.executionResumed")
-      : t("messages.reuseConversationDisabled") || t("messages.executionPaused"),
-    "info",
-  );
-}
-
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   applyTranslations();
-  loadQuestions();
+  await loadSettings();
+  await loadQuestions();
   setupEventListeners();
   updateUI();
   initializeApp();

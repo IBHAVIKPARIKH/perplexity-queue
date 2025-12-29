@@ -1,125 +1,68 @@
-async function handleProcessQuestion(message, sender, sendResponse) {
+const PERPLEXITY_URL = "https://www.perplexity.ai/";
+
+async function handleProcessQuestion(request, sender, sendResponse) {
+  const reuseConversation = request?.reuseConversation !== false; // default: reuse same chat
+
   try {
-    const { reuseConversation: reuseSetting } = await chrome.storage.local.get("reuseConversation");
-    const reuseConversation = reuseSetting !== false;
-
-    let targetTab = null;
-
-    if (reuseConversation) {
-      const existing = await chrome.tabs.query({ url: "https://www.perplexity.ai/*" });
-      if (existing.length > 0) {
-        targetTab = existing[0];
-        await chrome.tabs.update(targetTab.id, { active: true });
-      }
+    const tabId = await ensurePerplexityTab(reuseConversation);
+    const ready = await ensureContentScript(tabId, reuseConversation);
+    if (!ready) {
+      throw new Error("Perplexity tab not ready. Please refresh the page and try again.");
     }
 
-    if (!targetTab) {
-      targetTab = await chrome.tabs.create({ url: "https://www.perplexity.ai/", active: true });
-      await waitForTabLoad(targetTab.id);
-    } else {
-      await waitForTabLoad(targetTab.id);
-    }
-
-    await ensureContentScriptReady(targetTab.id);
-
-    const prepared = await prepareNewConversation(targetTab.id);
-    if (!prepared) throw new Error("Failed to prepare new conversation");
-    await ensureContentScriptReady(targetTab.id);
-
-    const response = await chrome.tabs.sendMessage(targetTab.id, {
+    const result = await chrome.tabs.sendMessage(tabId, {
       type: "ASK_QUESTION",
-      question: message.question,
-      questionId: message.questionId,
+      question: request.question,
+      questionId: request.questionId,
     });
 
-    sendResponse(response);
+    sendResponse(result);
   } catch (error) {
     sendResponse({ success: false, error: error.message });
   }
 }
 
-async function ensureContentScriptReady(tabId) {
-  let ready = await waitForContentScript(tabId);
+async function ensurePerplexityTab(reuseConversation) {
+  const existing = await chrome.tabs.query({ url: `${PERPLEXITY_URL}*` });
+  let tab = existing[0];
 
-  if (!ready) {
-    await chrome.tabs.reload(tabId);
-    await sleep(3000);
-    await waitForTabLoad(tabId);
-    ready = await waitForContentScript(tabId);
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: PERPLEXITY_URL, active: true });
+    await waitForTabLoad(tab.id);
+    return tab.id;
   }
 
-  if (!ready) {
-    throw new Error(
-      "Content script not ready even after page refresh. Please try manually refreshing the Perplexity page (F5).",
-    );
+  // Reuse without reloading to stay in the same conversation
+  if (reuseConversation) {
+    await chrome.tabs.update(tab.id, { active: true });
+    return tab.id;
   }
+
+  // Force a fresh conversation by reloading the home page
+  await chrome.tabs.update(tab.id, { url: PERPLEXITY_URL, active: true });
+  await waitForTabLoad(tab.id);
+  return tab.id;
 }
 
-async function prepareNewConversation(tabId) {
-  try {
-    await waitForTabLoad(tabId);
-    await sleep(500);
-    const result = await clickNewThread(tabId);
-    if (result?.clicked) {
-      await sleep(1000);
-      await waitForTabLoad(tabId);
-    }
-    return Boolean(result && (result.clicked || result.hasHome));
-  } catch (error) {
-    return false;
-  }
+async function ensureContentScript(tabId, reuseConversation) {
+  const ready = await waitForContentScript(tabId);
+  if (ready) return true;
+
+  // Try a single reload to inject the content script
+  await chrome.tabs.reload(tabId);
+  await sleep(3000);
+  await waitForTabLoad(tabId);
+  return waitForContentScript(tabId);
 }
 
-async function clickNewThread(tabId) {
-  try {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const selectors = [
-          'button[aria-label="New thread"]',
-          'button[aria-label*="New thread"]',
-          'button:has(svg[aria-label*="New thread"])',
-          'a[aria-label="Home"]',
-          'a[aria-label*="Home"]',
-          'a[href="/"]',
-          'a[href="/home"]',
-        ];
-
-        let clicked = false;
-
-        for (const selector of selectors) {
-          const el = document.querySelector(selector);
-          if (el && typeof el.click === "function") {
-            el.click();
-            clicked = true;
-            break;
-          }
-        }
-
-        const home =
-          document.querySelector('a[href="/"]') ||
-          document.querySelector('a[href="/home"]') ||
-          document.querySelector('a[aria-label*="Home"]');
-
-        return { hasHome: Boolean(home), clicked };
-      },
-    });
-
-    return result?.result || { clicked: false, hasHome: false };
-  } catch (error) {
-    return false;
-  }
-}
-
-async function waitForContentScript(tabId, retries = 25) {
-  for (let i = 0; i < retries; i++) {
+async function waitForContentScript(tabId, attempts = 25) {
+  for (let i = 0; i < attempts; i++) {
     try {
-      const response = await chrome.tabs.sendMessage(tabId, { type: "PING" });
-      if (response && response.ready) return true;
+      const res = await chrome.tabs.sendMessage(tabId, { type: "PING" });
+      if (res && res.ready) return true;
     } catch (error) {
       await sleep(1200);
     }
-    await sleep(200);
   }
   return false;
 }
@@ -128,35 +71,39 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function handleOpenPerplexity(message, sendResponse) {
+async function handleOpenPerplexity(request, sendResponse) {
   try {
-    const url = "https://www.perplexity.ai/";
-    const tabs = await chrome.tabs.query({ url: "https://www.perplexity.ai/*" });
-    if (tabs.length > 0) {
-      await chrome.tabs.update(tabs[0].id, { url, active: true });
-      sendResponse({ success: true, tabId: tabs[0].id });
-    } else {
-      const newTab = await chrome.tabs.create({ url, active: true });
-      sendResponse({ success: true, tabId: newTab.id });
+    const existing = await chrome.tabs.query({ url: `${PERPLEXITY_URL}*` });
+    if (existing.length > 0) {
+      await chrome.tabs.update(existing[0].id, { active: true });
+      sendResponse({ success: true, tabId: existing[0].id });
+      return;
     }
+
+    const tab = await chrome.tabs.create({ url: PERPLEXITY_URL, active: true });
+    sendResponse({ success: true, tabId: tab.id });
   } catch (error) {
     sendResponse({ success: false, error: error.message });
   }
 }
 
 async function waitForTabLoad(tabId) {
-  const status = (await chrome.tabs.get(tabId)).status;
-  if (status !== "complete") {
-    return new Promise((resolve) => {
-      chrome.tabs.onUpdated.addListener(function listener(id, info) {
-        if (id === tabId && info.status === "complete") {
-          chrome.tabs.onUpdated.removeListener(listener);
-          setTimeout(resolve, 5000);
-        }
-      });
-    });
+  const tab = await chrome.tabs.get(tabId);
+  if (tab.status === "complete") {
+    await sleep(5000);
+    return;
   }
-  await sleep(5000);
+
+  return new Promise((resolve) => {
+    const listener = (updatedTabId, info) => {
+      if (updatedTabId === tabId && info.status === "complete") {
+        chrome.tabs.onUpdated.removeListener(listener);
+        setTimeout(resolve, 5000);
+      }
+    };
+
+    chrome.tabs.onUpdated.addListener(listener);
+  });
 }
 
 async function forwardToSidePanel(message) {
@@ -167,7 +114,9 @@ async function forwardToSidePanel(message) {
   }
 
   try {
-    await chrome.storage.local.set({ pendingMessage: { ...message, timestamp: Date.now() } });
+    await chrome.storage.local.set({
+      pendingMessage: { ...message, timestamp: Date.now() },
+    });
   } catch (error) {
     // ignore storage errors
   }
@@ -199,8 +148,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return undefined;
 });
 
-chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
-  if (info.status === "complete" && tab.url && tab.url.includes("perplexity.ai")) {
-    // placeholder for future logic
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === "complete" && tab.url && tab.url.includes("perplexity.ai")) {
+    // placeholder for future hooks
   }
 });
