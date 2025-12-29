@@ -43,9 +43,9 @@ async function parseSSEWithBackend() {
   if (!currentQuestion) return;
 
   try {
-    const stitched = sseChunks.join("\n");
-    currentAnswer = stitched || "No answer received from stream.";
-    currentSources = [];
+    const { text, sources } = extractAnswerFromChunks(sseChunks);
+    currentAnswer = text || "No answer received from stream.";
+    currentSources = sources;
     currentReferences = [];
     handleAnswerComplete();
   } catch (error) {
@@ -53,6 +53,71 @@ async function parseSSEWithBackend() {
   } finally {
     isParsing = false;
   }
+}
+
+function extractAnswerFromChunks(chunks) {
+  if (!Array.isArray(chunks) || chunks.length === 0) {
+    return { text: "", sources: [] };
+  }
+
+  const parts = [];
+  const sources = [];
+
+  for (const chunk of chunks) {
+    const text = normalizeChunkText(chunk);
+    if (text) {
+      parts.push(text);
+    }
+
+    const chunkSources = normalizeSources(chunk);
+    for (const src of chunkSources) {
+      if (!sources.some((s) => s.url === src.url && s.title === src.title)) {
+        sources.push(src);
+      }
+    }
+  }
+
+  const combined = parts.join("").trim() || parts.join("\n").trim();
+  return { text: combined, sources };
+}
+
+function normalizeChunkText(chunk) {
+  if (!chunk) return "";
+  if (typeof chunk === "string") return chunk;
+  if (Array.isArray(chunk)) return chunk.map(normalizeChunkText).join("");
+  if (typeof chunk.text === "string") return chunk.text;
+  if (Array.isArray(chunk.text)) return chunk.text.map(normalizeChunkText).join("");
+  if (typeof chunk.message === "string") return chunk.message;
+  if (typeof chunk.content === "string") return chunk.content;
+  if (Array.isArray(chunk.content)) return chunk.content.map(normalizeChunkText).join("");
+  if (chunk.delta?.content && typeof chunk.delta.content === "string") return chunk.delta.content;
+  if (chunk.delta?.text && typeof chunk.delta.text === "string") return chunk.delta.text;
+  if (chunk.data && typeof chunk.data === "string") return chunk.data;
+  try {
+    return JSON.stringify(chunk);
+  } catch (error) {
+    return "";
+  }
+}
+
+function normalizeSources(chunk) {
+  if (!chunk || typeof chunk !== "object") return [];
+  const possibleSources = chunk.sources || chunk.references || chunk.citations;
+  if (!Array.isArray(possibleSources)) return [];
+
+  return possibleSources
+    .map((src) => {
+      if (!src) return null;
+      if (typeof src === "string") {
+        return { title: src, url: "", snippet: "" };
+      }
+      return {
+        title: src.title || src.name || src.url || "",
+        url: src.url || src.link || "",
+        snippet: src.snippet || src.text || src.excerpt || "",
+      };
+    })
+    .filter((src) => src && (src.title || src.url));
 }
 
 function handleSSEError(error) {
