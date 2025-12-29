@@ -40,6 +40,17 @@
       
       <!-- Divider -->
       <div class="control-divider"></div>
+
+      <!-- Conversation Setting -->
+      <div class="setting-row">
+        <label class="checkbox-row">
+          <input type="checkbox" id="reuseConversationToggle" checked />
+          <span data-i18n="settings.reuseChatLabel">Reuse same chat for all questions</span>
+        </label>
+        <div class="setting-hint" data-i18n="settings.reuseChatHint">
+          Keep this on to run all queued questions in one conversation. Turn off to start a fresh chat per question.
+        </div>
+      </div>
       
       <!-- Progress Section -->
       <div class="progress-section">
@@ -159,8 +170,10 @@
       <h2 data-i18n="questions.title">Question List</h2>
       <div class="action-bar">
         <button id="exportBtn" class="btn btn-primary" data-i18n="questions.exportBtn">Export Results (JSON)</button>
+        <button id="importBtn" class="btn btn-secondary" data-i18n="questions.importBtn">Import Questions (JSON)</button>
         <button id="clearAllBtn" class="btn btn-danger" data-i18n="questions.clearBtn">Clear All</button>
       </div>
+      <input id="importFileInput" type="file" accept="application/json" style="display: none;" />
       <div id="questionsList" class="questions-list"></div>
     </section>
   </div>
