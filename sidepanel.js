@@ -1,4 +1,5 @@
-const BROWSER_LANG = chrome.i18n.getUILanguage().toLowerCase().startsWith("zh") ? "zh" : "en";
+// Force default UI language to English to keep the extension consistent for all users.
+const BROWSER_LANG = "en";
 
 const KEY_MAP = {
   title: "title",
@@ -60,7 +61,10 @@ const KEY_MAP = {
   "log.title": "logTitle",
   "questions.title": "questionsTitle",
   "questions.exportBtn": "questionsExportBtn",
+  "questions.importBtn": "questionsImportBtn",
   "questions.clearBtn": "questionsClearBtn",
+  "settings.reuseChatLabel": "settingsReuseChatLabel",
+  "settings.reuseChatHint": "settingsReuseChatHint",
   "questions.question": "questionsQuestion",
   "questions.answer": "questionsAnswer",
   "questions.sources": "questionsSources",
@@ -89,6 +93,9 @@ const KEY_MAP = {
   "messages.retryingFailed": "msgRetryingFailed",
   "messages.noResults": "msgNoResults",
   "messages.resultsExported": "msgResultsExported",
+  "messages.resultsImported": "msgResultsImported",
+  "messages.importFailed": "msgImportFailed",
+  "messages.invalidImport": "msgInvalidImport",
   "messages.pleaseStopFirst": "msgPleaseStopFirst",
   "messages.confirmClearAll": "msgConfirmClearAll",
   "messages.allCleared": "msgAllCleared",
@@ -137,7 +144,10 @@ const DEFAULT_MESSAGES = {
   "log.title": "Execution Log",
   "questions.title": "Question List",
   "questions.exportBtn": "Export Results (JSON)",
+  "questions.importBtn": "Import Questions (JSON)",
   "questions.clearBtn": "Clear All",
+  "settings.reuseChatLabel": "Reuse same chat for all questions",
+  "settings.reuseChatHint": "Keep this on to run every queued question in one chat. Turn off to start a fresh chat per question.",
   "questions.question": "Question",
   "questions.answer": "Answer",
   "questions.sources": "Sources",
@@ -160,6 +170,9 @@ const DEFAULT_MESSAGES = {
   "messages.noFailedQuestions": "No failed questions",
   "messages.resetFailed": "{count} failed questions reset",
   "messages.resultsExported": "Results exported",
+  "messages.resultsImported": "Imported {count} questions",
+  "messages.importFailed": "Import failed",
+  "messages.invalidImport": "Invalid import file format",
   "messages.pleaseStopFirst": "Please stop current run first",
   "messages.allCleared": "All questions cleared",
   "messages.completed": "Completed",
@@ -184,6 +197,7 @@ let questions = [];
 let isRunning = false;
 let isPaused = false;
 let currentIndex = 0;
+let reuseConversation = true;
 
 const questionsInput = document.getElementById("questionsInput");
 const addQuestionsBtn = document.getElementById("addQuestionsBtn");
@@ -195,7 +209,10 @@ const stopBtn = document.getElementById("stopBtn");
 const stopBtn2 = document.getElementById("stopBtn2");
 const retryFailedBtn = document.getElementById("retryFailedBtn");
 const exportBtn = document.getElementById("exportBtn");
+const importBtn = document.getElementById("importBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
+const importFileInput = document.getElementById("importFileInput");
+const reuseConversationToggle = document.getElementById("reuseConversationToggle");
 const progressText = document.getElementById("progressText");
 const progressPercent = document.getElementById("progressPercent");
 const idleButtons = document.getElementById("idleButtons");
@@ -220,7 +237,10 @@ function setupEventListeners() {
   stopBtn2.addEventListener("click", handleStop);
   retryFailedBtn.addEventListener("click", handleRetryFailed);
   exportBtn.addEventListener("click", handleExport);
+  importBtn.addEventListener("click", handleImportClick);
+  importFileInput.addEventListener("change", handleImportFile);
   clearAllBtn.addEventListener("click", handleClearAll);
+  reuseConversationToggle.addEventListener("change", handleReuseToggle);
 }
 
 function t(key, params) {
@@ -278,6 +298,7 @@ function generateUUID() {
   });
 }
 
+// Handle adding questions from the textarea into the queue.
 function handleAddQuestions() {
   const input = questionsInput.value.trim();
   if (!input) {
@@ -312,10 +333,18 @@ function handleAddQuestions() {
   }
 }
 
+// Clear the textarea without touching the queue.
 function handleClearInput() {
   questionsInput.value = "";
 }
 
+// Persist the user's preference for reusing the same conversation tab.
+function handleReuseToggle() {
+  reuseConversation = !!reuseConversationToggle.checked;
+  chrome.storage.local.set({ reuseConversation });
+}
+
+// Start processing pending questions, honoring the reuseConversation flag.
 async function handleStart() {
   if (questions.length === 0) {
     addLog(t("messages.noQuestions"), "warning");
@@ -368,12 +397,14 @@ async function handleStart() {
   processNextQuestion();
 }
 
+// Pause the current run; resumes from the same question later.
 function handlePause() {
   isPaused = true;
   updateControlButtons();
   addLog(t("messages.executionPaused"), "warning");
 }
 
+// Resume processing after a pause.
 function handleResume() {
   isPaused = false;
   updateControlButtons();
@@ -381,6 +412,7 @@ function handleResume() {
   processNextQuestion();
 }
 
+// Stop the current run and reset in-flight questions back to pending.
 function handleStop() {
   isRunning = false;
   isPaused = false;
@@ -404,6 +436,7 @@ function handleStop() {
   }
 }
 
+// Move all failed questions back to pending so they can be retried.
 function handleRetryFailed() {
   if (isRunning) {
     addLog(t("messages.pleaseStopFirst"), "warning");
@@ -426,6 +459,7 @@ function handleRetryFailed() {
   addLog(t("messages.resetFailed").replace("{count}", failed.length), "success");
 }
 
+// Pull the next pending question and send it to the background script.
 async function processNextQuestion() {
   if (!isRunning || isPaused) return;
 
@@ -457,6 +491,7 @@ async function processNextQuestion() {
       type: "PROCESS_QUESTION",
       question: next.question,
       questionId: next.id,
+      reuseConversation,
     });
 
     if (!response || !response.success) {
@@ -479,6 +514,7 @@ async function processNextQuestion() {
   }
 }
 
+// Apply the result from the content script and advance the queue.
 function handleQuestionComplete(result) {
   const question = questions.find((item) => item.id === result.questionId);
   if (!question || question.status === "completed" || question.status === "failed") {
@@ -511,21 +547,37 @@ function handleQuestionComplete(result) {
   }
 }
 
+// Export all questions with metadata to JSON (including normalized sources).
 function handleExport() {
   if (questions.length === 0) {
     addLog(t("messages.noResults"), "warning");
     return;
   }
 
+  const total = questions.length;
+  const completed = questions.filter((q) => q.status === "completed").length;
+  const failed = questions.filter((q) => q.status === "failed").length;
+  const pending = questions.filter((q) => q.status === "pending").length;
+
   const payload = {
     exportTime: new Date().toISOString(),
-    totalQuestions: questions.length,
-    completedQuestions: questions.filter((q) => q.status === "completed").length,
+    totalQuestions: total,
+    completedQuestions: completed,
+    failedQuestions: failed,
+    pendingQuestions: pending,
+    summary: {
+      total,
+      completed,
+      failed,
+      pending,
+      successRate: total > 0 ? completed / total : 0,
+    },
     questions: questions.map((q) => ({
+      id: q.id,
       question: q.question,
       status: q.status,
-      answer: q.answer,
-      sources: q.sources,
+      answer: q.answer || "",
+      sources: Array.isArray(q.sources) ? q.sources.map(formatSourceForExport) : [],
       timestamp: q.timestamp,
       completedAt: q.completedAt,
       error: q.error,
@@ -545,6 +597,144 @@ function handleExport() {
   URL.revokeObjectURL(url);
 
   addLog(t("messages.resultsExported"), "success");
+}
+
+function formatSourceForExport(source) {
+  const url = (source && source.url) || "";
+  let domain = "";
+  try {
+    domain = url ? new URL(url).hostname : "";
+  } catch (error) {
+    domain = "";
+  }
+
+  return {
+    title: (source && source.title) || "",
+    url,
+    domain,
+    snippet: (source && source.snippet) || "",
+  };
+}
+
+// Trigger file selection for JSON import.
+function handleImportClick() {
+  if (isRunning) {
+    addLog(t("messages.pleaseStopFirst"), "warning");
+    return;
+  }
+  importFileInput.value = "";
+  importFileInput.click();
+}
+
+// Normalize various import payload shapes (arrays, messages, sequences) into questions.
+function parseImportedQuestions(data) {
+  if (!data) return [];
+
+  const allowedStatuses = new Set(["pending", "completed", "failed"]);
+  const collected = [];
+
+  const normalizeItem = (item, meta = {}) => {
+    if (!item) return null;
+
+    if (typeof item === "string") {
+      const question = item.trim();
+      return question
+        ? {
+            id: generateUUID(),
+            question,
+            status: "pending",
+            answer: "",
+            sources: [],
+            timestamp: Date.now(),
+            error: null,
+            ...meta,
+          }
+        : null;
+    }
+
+    if (typeof item === "object" && typeof item.question === "string") {
+      const status = allowedStatuses.has(item.status) ? item.status : "pending";
+      const question = item.question.trim();
+      if (!question) return null;
+      return {
+        id: item.id || generateUUID(),
+        question,
+        status,
+        answer: item.answer || "",
+        sources: Array.isArray(item.sources) ? item.sources : [],
+        timestamp: item.timestamp || Date.now(),
+        completedAt: item.completedAt || null,
+        error: item.error || null,
+        ...meta,
+      };
+    }
+
+    if (typeof item === "object" && typeof item.text === "string") {
+      return normalizeItem(
+        { question: item.text, status: item.status, answer: item.answer, sources: item.sources },
+        meta,
+      );
+    }
+
+    return null;
+  };
+
+  const pushFromList = (list, metaFactory) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((entry, idx) => {
+      const normalized = normalizeItem(entry, metaFactory ? metaFactory(idx) : undefined);
+      if (normalized) collected.push(normalized);
+    });
+  };
+
+  if (Array.isArray(data)) {
+    pushFromList(data);
+  } else if (data && typeof data === "object") {
+    pushFromList(data.questions || data.messages);
+
+    if (data.sequences && typeof data.sequences === "object") {
+      Object.entries(data.sequences).forEach(([sequenceId, sequenceItems]) => {
+        pushFromList(sequenceItems, (idx) => ({ sequenceId, sequenceIndex: idx }));
+      });
+    }
+  }
+
+  return collected.filter(Boolean).filter((item) => item.question);
+}
+
+// Read a selected JSON file and merge imported questions into the queue.
+function handleImportFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const json = JSON.parse(reader.result);
+      const imported = parseImportedQuestions(json);
+
+      if (!imported.length) {
+        addLog(t("messages.invalidImport"), "error");
+        return;
+      }
+
+      questions = [...questions, ...imported];
+      saveQuestions();
+      updateUI();
+      addLog(t("messages.resultsImported", { count: imported.length }), "success");
+    } catch (error) {
+      addLog(`${t("messages.importFailed")}: ${error.message}`, "error");
+    } finally {
+      importFileInput.value = "";
+    }
+  };
+
+  reader.onerror = () => {
+    addLog(t("messages.importFailed"), "error");
+    importFileInput.value = "";
+  };
+
+  reader.readAsText(file);
 }
 
 function handleClearAll() {
@@ -768,6 +958,23 @@ function saveQuestions() {
   chrome.storage.local.set({ questions });
 }
 
+async function loadSettings() {
+  try {
+    const stored = await chrome.storage.local.get(["reuseConversation"]);
+    if (stored.reuseConversation === false) {
+      reuseConversation = false;
+    } else {
+      reuseConversation = true;
+    }
+  } catch (error) {
+    reuseConversation = true;
+  }
+
+  if (reuseConversationToggle) {
+    reuseConversationToggle.checked = reuseConversation;
+  }
+}
+
 async function loadQuestions() {
   try {
     const stored = await chrome.storage.local.get(["questions"]);
@@ -790,9 +997,10 @@ function saveWebSearchSetting(value) {
   chrome.storage.local.set({ useWebSearch: value });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   applyTranslations();
-  loadQuestions();
+  await loadSettings();
+  await loadQuestions();
   setupEventListeners();
   updateUI();
   initializeApp();
