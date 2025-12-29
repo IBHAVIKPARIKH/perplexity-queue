@@ -1,11 +1,9 @@
 {
-"update_url": "https://clients2.google.com/service/update2/crx",
-
+  "update_url": "https://clients2.google.com/service/update2/crx",
   "manifest_version": 3,
-  "name": "__MSG_extName__",
+  "name": "Perplexity Batch Question Assistant",
   "version": "1.0.0",
-  "description": "__MSG_extDescription__",
-  "default_locale": "en",
+  "description": "Batch-send questions to Perplexity and collect results without creating an account.",
   "permissions": [
     "storage",
     "sidePanel",
@@ -21,27 +19,35 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.perplexity.ai/*"],
-      "js": ["config.js", "content.js"],
+      "matches": [
+        "https://www.perplexity.ai/*"
+      ],
+      "js": [
+        "config.js",
+        "content.js"
+      ],
       "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["injected.js"],
-      "matches": ["https://www.perplexity.ai/*"]
+      "resources": [
+        "injected.js"
+      ],
+      "matches": [
+        "https://www.perplexity.ai/*"
+      ]
     }
   ],
   "side_panel": {
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "__MSG_extName__"
+    "default_title": "Perplexity Batch Question Assistant"
   },
   "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   }
 }
-

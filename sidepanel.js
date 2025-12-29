@@ -1,1 +1,868 @@
-const BROWSER_LANG=chrome.i18n.getUILanguage().toLowerCase().startsWith("zh")?"zh":"en",KEY_MAP={title:"title","login.title":"loginTitle","login.subtitle":"loginSubtitle","login.email":"loginEmail","login.password":"loginPassword","login.loginBtn":"loginLoginBtn","login.registerBtn":"loginRegisterBtn","login.browseWithoutLogin":"loginBrowseWithoutLogin","login.noAccount":"loginNoAccount","login.goToRegister":"loginGoToRegister","login.loggingIn":"loginLoggingIn","login.registering":"loginRegistering","login.loginSuccess":"loginSuccess","login.registerSuccess":"loginRegisterSuccess","login.loginFailed":"loginFailed","login.registerFailed":"loginRegisterFailed","login.invalidEmail":"loginInvalidEmail","login.passwordTooShort":"loginPasswordTooShort","login.pleaseLoginFirst":"loginPleaseLoginFirst","register.title":"registerTitle","register.subtitle":"registerSubtitle","register.passwordConfirm":"registerPasswordConfirm","register.backToLogin":"registerBackToLogin","register.hasAccount":"registerHasAccount","register.goToLogin":"registerGoToLogin",registerPasswordMismatch:"registerPasswordMismatch","header.title":"headerTitle","header.openChatGPT":"headerOpenChatGPT","header.login":"headerLogin","header.logout":"headerLogout","header.loggedInAs":"headerLoggedInAs","header.guestMode":"headerGuestMode","header.register":"headerRegister","notice.title":"noticeTitle","notice.chatgptLogin":"noticeChatgptLogin","input.title":"inputTitle","input.placeholder":"inputPlaceholder","input.addBtn":"inputAddBtn","input.clearBtn":"inputClearBtn","control.title":"controlTitle","control.startBtn":"controlStartBtn","control.pauseBtn":"controlPauseBtn","control.resumeBtn":"controlResumeBtn","control.stopBtn":"controlStopBtn","control.retryBtn":"controlRetryBtn","control.useWebSearch":"controlUseWebSearch","control.useWebSearchHint":"controlUseWebSearchHint","stats.total":"statsTotal","stats.completed":"statsCompleted","stats.success":"statsSuccess","stats.failed":"statsFailed","progress.ready":"progressReady","progress.running":"progressRunning","progress.processing":"progressProcessing","progress.paused":"progressPaused","progress.completed":"progressCompleted","log.title":"logTitle","questions.title":"questionsTitle","questions.exportBtn":"questionsExportBtn","questions.clearBtn":"questionsClearBtn","questions.question":"questionsQuestion","questions.answer":"questionsAnswer","questions.sources":"questionsSources","questions.viewAnswer":"questionsViewAnswer","questions.hideAnswer":"questionsHideAnswer","questions.noQuestions":"questionsNoQuestions","questions.addToStart":"questionsAddToStart","questions.noAnswer":"questionsNoAnswer","questions.errorInfo":"questionsErrorInfo","questions.unknownError":"questionsUnknownError","questions.status.pending":"statusPending","questions.status.processing":"statusProcessing","questions.status.completed":"statusCompleted","questions.status.failed":"statusFailed","messages.pleaseEnterQuestion":"msgPleaseEnterQuestion","messages.questionsAdded":"msgQuestionsAdded","messages.inputCleared":"msgInputCleared","messages.alreadyRunning":"msgAlreadyRunning","messages.noQuestions":"msgNoQuestions","messages.pleaseAddQuestions":"msgPleaseAddQuestions","messages.executionStarted":"msgExecutionStarted","messages.executionPaused":"msgExecutionPaused","messages.executionResumed":"msgExecutionResumed","messages.executionStopped":"msgExecutionStopped","messages.noFailedQuestions":"msgNoFailedQuestions","messages.retryingFailed":"msgRetryingFailed","messages.noResults":"msgNoResults","messages.resultsExported":"msgResultsExported","messages.pleaseStopFirst":"msgPleaseStopFirst","messages.confirmClearAll":"msgConfirmClearAll","messages.allCleared":"msgAllCleared","messages.completed":"msgCompleted","messages.failed":"msgFailed","messages.waitingNext":"msgWaitingNext","messages.allCompleted":"msgAllCompleted","messages.chatGPTOpened":"msgChatGPTOpened","messages.chatGPTOpenFailed":"msgChatGPTOpenFailed","messages.openingChatGPT":"msgOpeningChatGPT","messages.cannotOpenChatGPT":"msgCannotOpenChatGPT","messages.error":"msgError","messages.startingBatch":"msgStartingBatch","messages.foundPending":"msgFoundPending","messages.waitingPage":"msgWaitingPage","messages.startingFirst":"msgStartingFirst","messages.resetFailed":"msgResetFailed","messages.submittedWaiting":"msgSubmittedWaiting","messages.processingFailed":"msgProcessingFailed","messages.loadedQuestions":"msgLoadedQuestions","messages.loadFailed":"msgLoadFailed","messages.ready":"msgReady"};let questions=[],isRunning=!1,isPaused=!1,currentIndex=0;const questionsInput=document.getElementById("questionsInput"),addQuestionsBtn=document.getElementById("addQuestionsBtn"),clearInputBtn=document.getElementById("clearInputBtn"),startBtn=document.getElementById("startBtn"),pauseBtn=document.getElementById("pauseBtn"),resumeBtn=document.getElementById("resumeBtn"),stopBtn=document.getElementById("stopBtn"),stopBtn2=document.getElementById("stopBtn2"),retryFailedBtn=document.getElementById("retryFailedBtn"),exportBtn=document.getElementById("exportBtn"),clearAllBtn=document.getElementById("clearAllBtn"),progressText=document.getElementById("progressText"),progressPercent=document.getElementById("progressPercent"),idleButtons=document.getElementById("idleButtons"),runningButtons=document.getElementById("runningButtons"),pausedButtons=document.getElementById("pausedButtons"),retryButtonContainer=document.getElementById("retryButtonContainer"),questionsList=document.getElementById("questionsList"),logContainer=document.getElementById("logContainer"),totalCount=document.getElementById("totalCount"),completedCount=document.getElementById("completedCount"),successCount=document.getElementById("successCount"),failedCount=document.getElementById("failedCount"),progressFill=document.getElementById("progressFill");function setupEventListeners(){addQuestionsBtn.addEventListener("click",handleAddQuestions),clearInputBtn.addEventListener("click",handleClearInput),startBtn.addEventListener("click",handleStart),pauseBtn.addEventListener("click",handlePause),resumeBtn.addEventListener("click",handleResume),stopBtn.addEventListener("click",handleStop),stopBtn2.addEventListener("click",handleStop),retryFailedBtn.addEventListener("click",handleRetryFailed),exportBtn.addEventListener("click",handleExport),clearAllBtn.addEventListener("click",handleClearAll)}function t(e,t){let s,n=KEY_MAP[e];if(n||(n=e),t)if("object"!=typeof t||Array.isArray(t))s=Array.isArray(t)?chrome.i18n.getMessage(n,t.map(String)):chrome.i18n.getMessage(n,String(t));else{const e=Object.values(t);s=chrome.i18n.getMessage(n,e.map(String))}else s=chrome.i18n.getMessage(n);return s?(t&&"object"==typeof t&&!Array.isArray(t)&&(s=s.replace(/\{(\w+)\}/g,(e,s)=>void 0!==t[s]?t[s]:e)),s):e}function applyTranslations(){document.title=t("title"),document.documentElement.lang=BROWSER_LANG,document.querySelectorAll("[data-i18n]").forEach(e=>{const s=e.getAttribute("data-i18n");e.textContent=t(s)}),document.querySelectorAll("[data-i18n-placeholder]").forEach(e=>{const s=e.getAttribute("data-i18n-placeholder");e.placeholder=t(s)}),updateUI()}function generateUUID(){return"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(e){const t=16*Math.random()|0;return("x"===e?t:3&t|8).toString(16)})}function handleAddQuestions(){if(!requireAuth())return;const e=questionsInput.value.trim();if(!e)return void addLog(t("messages.pleaseEnterQuestion"),"warning");const s=e.split("\n").filter(e=>e.trim());let n=0;s.forEach(e=>{const t=e.trim();t&&(questions.push({id:generateUUID(),question:t,status:"pending",answer:"",sources:[],timestamp:Date.now(),error:null}),n++)}),n>0&&(questionsInput.value="",saveQuestions(),updateUI(),addLog(`${n} ${t("messages.questionsAdded")}`,"success"))}function handleClearInput(){questionsInput.value=""}async function handleStart(){if(!requireAuth())return;if(0===questions.length)return void addLog(t("messages.noQuestions"),"warning");const e=questions.filter(e=>"pending"===e.status||"failed"===e.status);if(0!==e.length){questions.forEach(e=>{"failed"===e.status&&(e.status="pending",e.error=null)}),saveQuestions(),updateUI(),addLog(t("messages.openingChatGPT"),"info");try{const e=await chrome.runtime.sendMessage({type:"OPEN_CHATGPT"});if(!e.success)return void addLog(t("messages.cannotOpenChatGPT")+": "+e.error,"error")}catch(e){return void addLog(t("messages.error")+": "+e.message,"error")}isRunning=!0,isPaused=!1,currentIndex=0,updateControlButtons(),addLog(t("messages.startingBatch"),"info"),addLog(t("messages.foundPending",{count:e.length}),"info"),addLog(t("messages.waitingPage"),"info"),await sleep(3e3),addLog(t("messages.startingFirst"),"info"),processNextQuestion()}else addLog(t("messages.noQuestions"),"warning")}function handlePause(){isPaused=!0,updateControlButtons(),addLog(t("messages.executionPaused"),"warning")}function handleResume(){isPaused=!1,updateControlButtons(),addLog(t("messages.executionResumed"),"info"),processNextQuestion()}function handleStop(){isRunning=!1,isPaused=!1;let e=0;questions.forEach(t=>{"processing"===t.status&&(t.status="pending",e++)}),saveQuestions(),updateControlButtons(),updateUI(),addLog(e>0?`⏹️ 已停止执行，${e} 个问题已重置为待处理状态`:t("messages.executionStopped"),"warning")}function handleRetryFailed(){if(isRunning)return void addLog(t("messages.pleaseStopFirst"),"warning");const e=questions.filter(e=>"failed"===e.status);0!==e.length?(e.forEach(e=>{e.status="pending",e.error=null}),saveQuestions(),updateUI(),addLog(t("messages.resetFailed").replace("{count}",e.length),"success")):addLog(t("messages.noFailedQuestions"),"info")}async function processNextQuestion(){if(!isRunning||isPaused)return;let e=null;for(let t=currentIndex;t<questions.length;t++)if("pending"===questions[t].status){e=questions[t],currentIndex=t;break}if(!e){isRunning=!1,updateControlButtons();questions.filter(e=>"completed"===e.status).length,questions.filter(e=>"failed"===e.status).length;return void addLog(t("messages.allCompleted"),"success")}e.status="processing",saveQuestions(),updateUI();const s=e.question.substring(0,50);addLog(`[${currentIndex+1}/${questions.length}]: ${s}...`,"info");try{const s=await chrome.runtime.sendMessage({type:"PROCESS_QUESTION",question:e.question,questionId:e.id});if(!s||!s.success)throw new Error(s?.error||"No response from background script");addLog(t("messages.submittedWaiting"),"info")}catch(s){e.status="failed",e.error=s.message,saveQuestions(),updateUI(),addLog(t("messages.processingFailed")+": "+s.message,"error"),currentIndex++,isRunning&&!isPaused&&(await sleep(2e3),processNextQuestion())}}function handleQuestionComplete(e){const s=questions.find(t=>t.id===e.questionId);s&&"completed"!==s.status&&"failed"!==s.status&&(e.success?(s.status="completed",s.answer=e.answer,s.sources=e.sources||[],s.completedAt=Date.now(),addLog(t("messages.completed")+": "+s.question.substring(0,50)+"...","success")):(s.status="failed",s.error=e.error,s.completedAt=Date.now(),addLog(t("messages.failed")+": "+s.question.substring(0,50)+"... - "+e.error,"error")),saveQuestions(),updateUI(),currentIndex++,isRunning&&!isPaused&&(addLog(t("messages.waitingNext"),"info"),sleep(3e3).then(()=>{processNextQuestion()})))}function handleExport(){if(!requireAuth())return;if(0===questions.length)return void addLog(t("messages.noResults"),"warning");const e={exportTime:(new Date).toISOString(),totalQuestions:questions.length,completedQuestions:questions.filter(e=>"completed"===e.status).length,questions:questions.map(e=>({question:e.question,status:e.status,answer:e.answer,sources:e.sources,timestamp:e.timestamp,completedAt:e.completedAt,error:e.error}))},s=new Blob([JSON.stringify(e,null,2)],{type:"application/json"}),n=URL.createObjectURL(s),o=document.createElement("a");o.href=n,o.download=`perplexity-answers-${Date.now()}.json`,document.body.appendChild(o),o.click(),document.body.removeChild(o),URL.revokeObjectURL(n),addLog(t("messages.resultsExported"),"success")}function handleClearAll(){isRunning?addLog("请先停止处理","warning"):confirm("确定要清空所有问题吗？")&&(questions=[],saveQuestions(),updateUI(),addLog(t("messages.allCleared"),"info"))}function updateUI(){updateStatistics(),updateQuestionsList(),updateControlButtons()}function updateStatValue(e,t){const s=parseInt(e.textContent)||0;e.textContent=t,t>s&&(e.classList.remove("updated"),e.offsetWidth,e.classList.add("updated"),setTimeout(()=>{e.classList.remove("updated")},400))}function updateStatistics(){const e=questions.length,s=questions.filter(e=>"completed"===e.status||"failed"===e.status).length,n=questions.filter(e=>"completed"===e.status).length,o=questions.filter(e=>"failed"===e.status).length,i=questions.filter(e=>"processing"===e.status).length;updateStatValue(totalCount,e),updateStatValue(completedCount,s),updateStatValue(successCount,n),updateStatValue(failedCount,o);const a=e>0?s/e*100:0;if(progressFill.style.width=a+"%",progressPercent.textContent=Math.round(a)+"%",isRunning&&i>0){const s=questions.findIndex(e=>"processing"===e.status);if(-1!==s){const n=s+1;progressText.textContent=t("progress.processing",{current:n,total:e})}else progressText.textContent=t("progress.running")}else progressText.textContent=t(isPaused?"progress.paused":e>0&&s===e?"progress.completed":"progress.ready");const r=document.querySelector(".stat-failed");r&&(0===o?r.classList.add("stat-muted"):r.classList.remove("stat-muted"))}function updateQuestionsList(){if(0===questions.length)return void(questionsList.innerHTML=`\n      <div class="empty-state">\n        <p data-i18n="questions.noQuestions">${t("questions.noQuestions")}</p>\n        <p data-i18n="questions.addToStart">${t("questions.addToStart")}</p>\n      </div>\n    `);questionsList.innerHTML="";[...questions].reverse().forEach((e,t)=>{const s=createQuestionItem(e,t);questionsList.appendChild(s)})}function createQuestionItem(e,s){const n=document.createElement("div");n.className="question-item",n.dataset.id=e.id;const o=e.status,i=t("questions.status."+e.status);let a="";if("completed"===e.status){let s="";e.sources&&e.sources.length>0&&(s=`\n        <div class="detail-section">\n          <h4>${t("questions.sources")} (${e.sources.length})</h4>\n          <ul class="sources-list">\n            ${e.sources.map(e=>`\n              <li class="source-item">\n                <div class="source-title">${escapeHtml(e.title)}</div>\n                <a href="${escapeHtml(e.url)}" target="_blank" class="source-url">${escapeHtml(e.url)}</a>\n                ${e.snippet?`<div class="source-snippet">${escapeHtml(e.snippet)}</div>`:""}\n              </li>\n            `).join("")}\n          </ul>\n        </div>\n      `),a=`\n      <div class="question-details">\n        <div class="detail-section">\n          <h4>${t("questions.question")}</h4>\n          <div class="answer-text">${escapeHtml(e.question)}</div>\n        </div>\n        <div class="detail-section">\n          <h4>${t("questions.answer")}</h4>\n          <div class="answer-text">${escapeHtml(e.answer||t("questions.noAnswer"))}</div>\n        </div>\n        ${s}\n      </div>\n    `}else"failed"===e.status&&(a=`\n      <div class="question-details">\n        <div class="detail-section">\n          <h4>${t("questions.question")}</h4>\n          <div class="answer-text">${escapeHtml(e.question)}</div>\n        </div>\n        <div class="detail-section">\n          <h4>${t("questions.errorInfo")}</h4>\n          <div class="error-text">${escapeHtml(e.error||t("questions.unknownError"))}</div>\n        </div>\n      </div>\n    `);const r=e.completedAt?new Date(e.completedAt).toLocaleString("zh-CN",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}):"";return n.innerHTML=`\n    <div class="question-header">\n      <span class="status-badge ${o}">${i}</span>\n      <div class="question-text" title="${escapeHtml(e.question)}">\n        ${escapeHtml(e.question)}\n      </div>\n      ${r?`<span class="question-time">${r}</span>`:""}\n    </div>\n    ${a}\n  `,n.addEventListener("click",()=>{n.classList.toggle("expanded")}),n}function updateControlButtons(){idleButtons.style.display="none",runningButtons.style.display="none",pausedButtons.style.display="none",isRunning?isPaused?pausedButtons.style.display="flex":runningButtons.style.display="flex":idleButtons.style.display="flex";questions.filter(e=>"failed"===e.status).length>0&&!isRunning?retryButtonContainer.style.display="flex":retryButtonContainer.style.display="none"}function addLog(e,t="info"){const s=document.createElement("div");s.className=`log-entry ${t}`;const n=(new Date).toLocaleTimeString();for(s.textContent=`[${n}] ${e}`,logContainer.appendChild(s),logContainer.scrollTop=logContainer.scrollHeight;logContainer.children.length>100;)logContainer.removeChild(logContainer.firstChild)}function saveQuestions(){chrome.storage.local.set({questions:questions})}async function loadQuestions(){try{const e=await chrome.storage.local.get(["questions"]);if(e.questions){questions=e.questions;questions.some(e=>"processing"===e.status)&&(isRunning=!0,isPaused=!1,addLog("🔄 检测到正在处理的任务，已恢复运行状态","info")),updateUI(),addLog(t("messages.loadedQuestions").replace("{count}",questions.length),"info")}}catch(e){addLog(t("messages.loadFailed")+": "+e.message,"error")}}function saveWebSearchSetting(e){chrome.storage.local.set({useWebSearch:e})}document.addEventListener("DOMContentLoaded",()=>{applyTranslations(),loadQuestions(),setupEventListeners(),updateUI()}),chrome.runtime.onMessage.addListener((e,t,s)=>{switch(e.type){case"QUESTION_COMPLETE":handleQuestionComplete(e.result),s({received:!0});break;case"UPDATE_PROGRESS":s({received:!0});break;case"LOG_MESSAGE":addLog(e.message,e.level||"info"),s({received:!0});break;default:s({received:!1})}return!0});let lastProcessedMessageTimestamp=0;function sleep(e){return new Promise(t=>setTimeout(t,e))}function escapeHtml(e){if(!e)return"";const t=document.createElement("div");return t.textContent=e,t.innerHTML}chrome.storage.onChanged.addListener((e,t)=>{if("local"===t&&e.pendingMessage){const t=e.pendingMessage.newValue;if(!t)return;if(t.timestamp&&t.timestamp<=lastProcessedMessageTimestamp)return;switch(t.timestamp&&(lastProcessedMessageTimestamp=t.timestamp),t.type){case"QUESTION_COMPLETE":handleQuestionComplete(t.result),chrome.storage.local.remove("pendingMessage");break;case"UPDATE_PROGRESS":chrome.storage.local.remove("pendingMessage");break;case"LOG_MESSAGE":addLog(t.message,t.level||"info"),chrome.storage.local.remove("pendingMessage")}}}),window.handleBackgroundMessage=function(e){chrome.runtime.onMessage.addListener(arguments[0])};class AuthManager{constructor(){this.token=null,this.email=null,this.serverUrl=null}async init(){const e=await chrome.storage.local.get(["authToken","authEmail"]);return this.token=e.authToken||null,this.email=e.authEmail||null,this.serverUrl="undefined"!=typeof CONFIG?CONFIG.DEFAULT_SERVER_URL:"http://localhost:8000",this.isAuthenticated()}isAuthenticated(){return!!this.token&&!!this.email}async login(e,t){try{const s=await fetch(`${this.serverUrl}/api/auth/login`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:e,password:t})});if(!s.ok){const e=await s.json();throw new Error(e.detail||"Login failed")}const n=await s.json();return this.token=n.access_token,this.email=e,await chrome.storage.local.set({authToken:this.token,authEmail:this.email}),!0}catch(e){throw e}}async register(e,t){try{const s=await fetch(`${this.serverUrl}/api/auth/register`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:e,password:t})});if(!s.ok){const e=await s.json();throw new Error(e.detail||"Registration failed")}return!0}catch(e){throw e}}async logout(){this.token=null,this.email=null,await chrome.storage.local.remove(["authToken","authEmail"])}async callAPI(e,t){if(!this.isAuthenticated())throw new Error("Not authenticated");try{const s=await fetch(`${this.serverUrl}${e}`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${this.token}`},body:JSON.stringify(t)});if(401===s.status)throw await this.logout(),new Error("Authentication expired, please login again");if(!s.ok){const e=await s.json();throw new Error(e.detail||"API call failed")}return await s.json()}catch(e){throw e}}}const authManager=new AuthManager;function showLoginModal(){document.getElementById("loginModal").style.display="block",document.getElementById("registerModal").style.display="none"}function hideLoginModal(){document.getElementById("loginModal").style.display="none"}function showRegisterModal(){document.getElementById("registerModal").style.display="block",document.getElementById("loginModal").style.display="none"}function hideRegisterModal(){document.getElementById("registerModal").style.display="none"}function updateUIForAuthState(e){const t=document.getElementById("loginStatusBtn"),s=document.getElementById("logoutBtn"),n=document.getElementById("userInfoBar"),o=document.getElementById("guestInfoBar"),i=document.getElementById("userNameShort"),a=document.getElementById("dropdownUserEmail");if(e){t.style.display="none",s.style.display="block",n.style.display="flex",o.style.display="none";const e=authManager.email.split("@")[0];i.textContent=e,a.textContent=authManager.email,enableAllButtons()}else t.style.display="block",s.style.display="none",n.style.display="none",o.style.display="block",disableAuthRequiredButtons()}function enableAllButtons(){["addQuestionsBtn","startBtn","pauseBtn","resumeBtn","stopBtn","retryFailedBtn","exportBtn","clearAllBtn"].forEach(e=>{const t=document.getElementById(e);t&&(t.disabled=!1,t.style.opacity="1",t.style.cursor="pointer")});const e=document.getElementById("questionsInput");e&&(e.disabled=!1,e.style.opacity="1")}function disableAuthRequiredButtons(){["addQuestionsBtn","startBtn","pauseBtn","resumeBtn","stopBtn","retryFailedBtn","exportBtn","clearAllBtn"].forEach(e=>{const t=document.getElementById(e);t&&(t.disabled=!0,t.style.opacity="0.5",t.style.cursor="not-allowed")});const e=document.getElementById("questionsInput");e&&(e.disabled=!0,e.style.opacity="0.5")}function requireAuth(e){return authManager.isAuthenticated()?(e&&e(),!0):(showLoginModal(),!1)}document.getElementById("loginBtn")?.addEventListener("click",async()=>{const e=document.getElementById("loginEmail").value.trim(),s=document.getElementById("loginPassword").value,n=document.getElementById("loginError"),o=document.getElementById("loginBtn");if(!e||!e.includes("@"))return n.textContent=t("login.invalidEmail"),void(n.style.display="block");if(!s||s.length<6)return n.textContent=t("login.passwordTooShort"),void(n.style.display="block");try{n.style.display="none",o.disabled=!0,o.textContent=t("login.loggingIn"),await authManager.login(e,s),hideLoginModal(),updateUIForAuthState(!0),addLog(t("login.loginSuccess"),"success")}catch(e){n.textContent=t("login.loginFailed")+": "+e.message,n.style.display="block"}finally{o.disabled=!1,o.innerHTML=`<span data-i18n="login.loginBtn">${t("login.loginBtn")}</span>`}}),document.getElementById("registerBtn")?.addEventListener("click",async()=>{const e=document.getElementById("registerEmail").value.trim(),s=document.getElementById("registerPassword").value,n=document.getElementById("registerPasswordConfirm").value,o=document.getElementById("registerError"),i=document.getElementById("registerBtn");if(!e||!e.includes("@"))return o.textContent=t("login.invalidEmail"),void(o.style.display="block");if(!s||s.length<6)return o.textContent=t("login.passwordTooShort"),void(o.style.display="block");if(s!==n)return o.textContent=t("registerPasswordMismatch"),void(o.style.display="block");try{o.style.display="none",i.disabled=!0,i.textContent=t("login.registering"),await authManager.register(e,s),document.getElementById("registerEmail").value="",document.getElementById("registerPassword").value="",document.getElementById("registerPasswordConfirm").value="",hideRegisterModal(),showLoginModal();const n=document.getElementById("loginError");n.style.color="#10b981",n.textContent=t("login.registerSuccess"),n.style.display="block",document.getElementById("loginEmail").value=e}catch(e){o.style.color="#ef4444",o.textContent=t("login.registerFailed")+": "+e.message,o.style.display="block"}finally{i.disabled=!1,i.innerHTML=`<span data-i18n="loginRegisterBtn">${t("login.registerBtn")}</span>`}}),document.getElementById("loginStatusBtn")?.addEventListener("click",()=>{showLoginModal()}),document.getElementById("registerStatusBtn")?.addEventListener("click",()=>{showRegisterModal()}),document.getElementById("cancelRegisterBtn")?.addEventListener("click",()=>{hideRegisterModal(),showLoginModal()}),document.getElementById("goToRegisterBtn")?.addEventListener("click",()=>{hideLoginModal(),showRegisterModal()}),document.getElementById("closeLoginBtn")?.addEventListener("click",()=>{hideLoginModal()}),document.getElementById("closeRegisterBtn")?.addEventListener("click",()=>{hideRegisterModal()});const userMenuBtn=document.getElementById("userMenuBtn"),userDropdownMenu=document.getElementById("userDropdownMenu");async function initializeApp(){const e=await authManager.init();updateUIForAuthState(e),e?addLog(t("messages.ready"),"success"):addLog("👋 "+t("header.guestMode"),"info")}userMenuBtn?.addEventListener("click",e=>{e.stopPropagation();"block"===userDropdownMenu.style.display?(userDropdownMenu.style.display="none",userMenuBtn.classList.remove("active")):(userDropdownMenu.style.display="block",userMenuBtn.classList.add("active"))}),document.addEventListener("click",e=>{userDropdownMenu&&"block"===userDropdownMenu.style.display&&(userDropdownMenu.contains(e.target)||e.target===userMenuBtn||(userDropdownMenu.style.display="none",userMenuBtn?.classList.remove("active")))}),document.getElementById("logoutBtn")?.addEventListener("click",async()=>{userDropdownMenu&&(userDropdownMenu.style.display="none",userMenuBtn?.classList.remove("active")),await authManager.logout(),updateUIForAuthState(!1),addLog("Logged out","info")}),initializeApp();
+const BROWSER_LANG = chrome.i18n.getUILanguage().toLowerCase().startsWith("zh") ? "zh" : "en";
+
+const KEY_MAP = {
+  title: "title",
+  "login.title": "loginTitle",
+  "login.subtitle": "loginSubtitle",
+  "login.email": "loginEmail",
+  "login.password": "loginPassword",
+  "login.loginBtn": "loginLoginBtn",
+  "login.registerBtn": "loginRegisterBtn",
+  "login.browseWithoutLogin": "loginBrowseWithoutLogin",
+  "login.noAccount": "loginNoAccount",
+  "login.goToRegister": "loginGoToRegister",
+  "login.loggingIn": "loginLoggingIn",
+  "login.registering": "loginRegistering",
+  "login.loginSuccess": "loginSuccess",
+  "login.registerSuccess": "loginRegisterSuccess",
+  "login.loginFailed": "loginFailed",
+  "login.registerFailed": "loginRegisterFailed",
+  "login.invalidEmail": "loginInvalidEmail",
+  "login.passwordTooShort": "loginPasswordTooShort",
+  "login.pleaseLoginFirst": "loginPleaseLoginFirst",
+  "register.title": "registerTitle",
+  "register.subtitle": "registerSubtitle",
+  "register.passwordConfirm": "registerPasswordConfirm",
+  "register.backToLogin": "registerBackToLogin",
+  "register.hasAccount": "registerHasAccount",
+  "register.goToLogin": "registerGoToLogin",
+  registerPasswordMismatch: "registerPasswordMismatch",
+  "header.title": "headerTitle",
+  "header.openChatGPT": "headerOpenChatGPT",
+  "header.login": "headerLogin",
+  "header.logout": "headerLogout",
+  "header.loggedInAs": "headerLoggedInAs",
+  "header.guestMode": "headerGuestMode",
+  "header.register": "headerRegister",
+  "notice.title": "noticeTitle",
+  "notice.chatgptLogin": "noticeChatgptLogin",
+  "input.title": "inputTitle",
+  "input.placeholder": "inputPlaceholder",
+  "input.addBtn": "inputAddBtn",
+  "input.clearBtn": "inputClearBtn",
+  "control.title": "controlTitle",
+  "control.startBtn": "controlStartBtn",
+  "control.pauseBtn": "controlPauseBtn",
+  "control.resumeBtn": "controlResumeBtn",
+  "control.stopBtn": "controlStopBtn",
+  "control.retryBtn": "controlRetryBtn",
+  "control.useWebSearch": "controlUseWebSearch",
+  "control.useWebSearchHint": "controlUseWebSearchHint",
+  "stats.total": "statsTotal",
+  "stats.completed": "statsCompleted",
+  "stats.success": "statsSuccess",
+  "stats.failed": "statsFailed",
+  "progress.ready": "progressReady",
+  "progress.running": "progressRunning",
+  "progress.processing": "progressProcessing",
+  "progress.paused": "progressPaused",
+  "progress.completed": "progressCompleted",
+  "log.title": "logTitle",
+  "questions.title": "questionsTitle",
+  "questions.exportBtn": "questionsExportBtn",
+  "questions.clearBtn": "questionsClearBtn",
+  "questions.question": "questionsQuestion",
+  "questions.answer": "questionsAnswer",
+  "questions.sources": "questionsSources",
+  "questions.viewAnswer": "questionsViewAnswer",
+  "questions.hideAnswer": "questionsHideAnswer",
+  "questions.noQuestions": "questionsNoQuestions",
+  "questions.addToStart": "questionsAddToStart",
+  "questions.noAnswer": "questionsNoAnswer",
+  "questions.errorInfo": "questionsErrorInfo",
+  "questions.unknownError": "questionsUnknownError",
+  "questions.status.pending": "statusPending",
+  "questions.status.processing": "statusProcessing",
+  "questions.status.completed": "statusCompleted",
+  "questions.status.failed": "statusFailed",
+  "messages.pleaseEnterQuestion": "msgPleaseEnterQuestion",
+  "messages.questionsAdded": "msgQuestionsAdded",
+  "messages.inputCleared": "msgInputCleared",
+  "messages.alreadyRunning": "msgAlreadyRunning",
+  "messages.noQuestions": "msgNoQuestions",
+  "messages.pleaseAddQuestions": "msgPleaseAddQuestions",
+  "messages.executionStarted": "msgExecutionStarted",
+  "messages.executionPaused": "msgExecutionPaused",
+  "messages.executionResumed": "msgExecutionResumed",
+  "messages.executionStopped": "msgExecutionStopped",
+  "messages.noFailedQuestions": "msgNoFailedQuestions",
+  "messages.retryingFailed": "msgRetryingFailed",
+  "messages.noResults": "msgNoResults",
+  "messages.resultsExported": "msgResultsExported",
+  "messages.pleaseStopFirst": "msgPleaseStopFirst",
+  "messages.confirmClearAll": "msgConfirmClearAll",
+  "messages.allCleared": "msgAllCleared",
+  "messages.completed": "msgCompleted",
+  "messages.failed": "msgFailed",
+  "messages.waitingNext": "msgWaitingNext",
+  "messages.allCompleted": "msgAllCompleted",
+  "messages.chatGPTOpened": "msgChatGPTOpened",
+  "messages.chatGPTOpenFailed": "msgChatGPTOpenFailed",
+  "messages.openingChatGPT": "msgOpeningChatGPT",
+  "messages.cannotOpenChatGPT": "msgCannotOpenChatGPT",
+  "messages.error": "msgError",
+  "messages.startingBatch": "msgStartingBatch",
+  "messages.foundPending": "msgFoundPending",
+  "messages.waitingPage": "msgWaitingPage",
+  "messages.startingFirst": "msgStartingFirst",
+  "messages.resetFailed": "msgResetFailed",
+  "messages.submittedWaiting": "msgSubmittedWaiting",
+  "messages.processingFailed": "msgProcessingFailed",
+  "messages.loadedQuestions": "msgLoadedQuestions",
+  "messages.loadFailed": "msgLoadFailed",
+  "messages.ready": "msgReady",
+};
+
+const DEFAULT_MESSAGES = {
+  title: "Perplexity Batch Question Assistant",
+  "input.title": "Question Input",
+  "input.placeholder": "Enter one question per line, batch input supported...",
+  "input.addBtn": "Add Questions",
+  "input.clearBtn": "Clear Input",
+  "control.title": "Execution Control",
+  "control.startBtn": "Start",
+  "control.pauseBtn": "Pause",
+  "control.resumeBtn": "Resume",
+  "control.stopBtn": "Stop",
+  "control.retryBtn": "Retry Failed",
+  "stats.total": "Total",
+  "stats.completed": "Completed",
+  "stats.success": "Success",
+  "stats.failed": "Failed",
+  "progress.ready": "Ready",
+  "progress.running": "Running",
+  "progress.processing": "Processing {current}/{total}",
+  "progress.paused": "Paused",
+  "progress.completed": "Completed",
+  "log.title": "Execution Log",
+  "questions.title": "Question List",
+  "questions.exportBtn": "Export Results (JSON)",
+  "questions.clearBtn": "Clear All",
+  "questions.question": "Question",
+  "questions.answer": "Answer",
+  "questions.sources": "Sources",
+  "questions.noQuestions": "No questions yet",
+  "questions.addToStart": "Add questions to begin",
+  "questions.noAnswer": "No answer",
+  "questions.errorInfo": "Error",
+  "questions.unknownError": "Unknown error",
+  "questions.status.pending": "Pending",
+  "questions.status.processing": "Processing",
+  "questions.status.completed": "Completed",
+  "questions.status.failed": "Failed",
+  "messages.pleaseEnterQuestion": "Please enter at least one question",
+  "messages.questionsAdded": "questions added",
+  "messages.noQuestions": "No questions to process",
+  "messages.pleaseAddQuestions": "Please add questions first",
+  "messages.executionPaused": "Execution paused",
+  "messages.executionResumed": "Execution resumed",
+  "messages.executionStopped": "Execution stopped",
+  "messages.noFailedQuestions": "No failed questions",
+  "messages.resetFailed": "{count} failed questions reset",
+  "messages.resultsExported": "Results exported",
+  "messages.pleaseStopFirst": "Please stop current run first",
+  "messages.allCleared": "All questions cleared",
+  "messages.completed": "Completed",
+  "messages.failed": "Failed",
+  "messages.waitingNext": "Waiting for next question...",
+  "messages.allCompleted": "All questions completed",
+  "messages.openingChatGPT": "Opening Perplexity tab...",
+  "messages.cannotOpenChatGPT": "Could not open Perplexity",
+  "messages.error": "Error",
+  "messages.startingBatch": "Starting batch",
+  "messages.foundPending": "Found pending questions: {count}",
+  "messages.waitingPage": "Waiting for Perplexity page to load",
+  "messages.startingFirst": "Starting first question",
+  "messages.submittedWaiting": "Submitted, waiting for answer...",
+  "messages.processingFailed": "Processing failed",
+  "messages.loadedQuestions": "Loaded {count} questions",
+  "messages.loadFailed": "Failed to load previous questions",
+  "messages.ready": "Ready",
+};
+
+let questions = [];
+let isRunning = false;
+let isPaused = false;
+let currentIndex = 0;
+
+const questionsInput = document.getElementById("questionsInput");
+const addQuestionsBtn = document.getElementById("addQuestionsBtn");
+const clearInputBtn = document.getElementById("clearInputBtn");
+const startBtn = document.getElementById("startBtn");
+const pauseBtn = document.getElementById("pauseBtn");
+const resumeBtn = document.getElementById("resumeBtn");
+const stopBtn = document.getElementById("stopBtn");
+const stopBtn2 = document.getElementById("stopBtn2");
+const retryFailedBtn = document.getElementById("retryFailedBtn");
+const exportBtn = document.getElementById("exportBtn");
+const clearAllBtn = document.getElementById("clearAllBtn");
+const progressText = document.getElementById("progressText");
+const progressPercent = document.getElementById("progressPercent");
+const idleButtons = document.getElementById("idleButtons");
+const runningButtons = document.getElementById("runningButtons");
+const pausedButtons = document.getElementById("pausedButtons");
+const retryButtonContainer = document.getElementById("retryButtonContainer");
+const questionsList = document.getElementById("questionsList");
+const logContainer = document.getElementById("logContainer");
+const totalCount = document.getElementById("totalCount");
+const completedCount = document.getElementById("completedCount");
+const successCount = document.getElementById("successCount");
+const failedCount = document.getElementById("failedCount");
+const progressFill = document.getElementById("progressFill");
+
+function setupEventListeners() {
+  addQuestionsBtn.addEventListener("click", handleAddQuestions);
+  clearInputBtn.addEventListener("click", handleClearInput);
+  startBtn.addEventListener("click", handleStart);
+  pauseBtn.addEventListener("click", handlePause);
+  resumeBtn.addEventListener("click", handleResume);
+  stopBtn.addEventListener("click", handleStop);
+  stopBtn2.addEventListener("click", handleStop);
+  retryFailedBtn.addEventListener("click", handleRetryFailed);
+  exportBtn.addEventListener("click", handleExport);
+  clearAllBtn.addEventListener("click", handleClearAll);
+}
+
+function t(key, params) {
+  let message;
+  const mappedKey = KEY_MAP[key] || key;
+
+  if (params) {
+    if (typeof params !== "object" || Array.isArray(params)) {
+      message = Array.isArray(params)
+        ? chrome.i18n.getMessage(mappedKey, params.map(String))
+        : chrome.i18n.getMessage(mappedKey, String(params));
+    } else {
+      const values = Object.values(params);
+      message = chrome.i18n.getMessage(mappedKey, values.map(String));
+    }
+  } else {
+    message = chrome.i18n.getMessage(mappedKey);
+  }
+
+  if (!message) {
+    message = DEFAULT_MESSAGES[key] || key;
+  }
+
+  if (params && typeof params === "object" && !Array.isArray(params)) {
+    message = message.replace(/\{(\w+)\}/g, (match, name) => {
+      return params[name] !== undefined ? params[name] : match;
+    });
+  }
+
+  return message;
+}
+
+function applyTranslations() {
+  document.title = t("title");
+  document.documentElement.lang = BROWSER_LANG;
+
+  document.querySelectorAll("[data-i18n]").forEach((node) => {
+    const key = node.getAttribute("data-i18n");
+    node.textContent = t(key);
+  });
+
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+    const key = node.getAttribute("data-i18n-placeholder");
+    node.placeholder = t(key);
+  });
+
+  updateUI();
+}
+
+function generateUUID() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = (Math.random() * 16) | 0;
+    const value = char === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+function handleAddQuestions() {
+  const input = questionsInput.value.trim();
+  if (!input) {
+    addLog(t("messages.pleaseEnterQuestion"), "warning");
+    return;
+  }
+
+  const lines = input.split("\n").filter((line) => line.trim());
+  let added = 0;
+
+  lines.forEach((line) => {
+    const question = line.trim();
+    if (!question) return;
+
+    questions.push({
+      id: generateUUID(),
+      question,
+      status: "pending",
+      answer: "",
+      sources: [],
+      timestamp: Date.now(),
+      error: null,
+    });
+    added++;
+  });
+
+  if (added > 0) {
+    questionsInput.value = "";
+    saveQuestions();
+    updateUI();
+    addLog(`${added} ${t("messages.questionsAdded")}`, "success");
+  }
+}
+
+function handleClearInput() {
+  questionsInput.value = "";
+}
+
+async function handleStart() {
+  if (questions.length === 0) {
+    addLog(t("messages.noQuestions"), "warning");
+    return;
+  }
+
+  const pending = questions.filter(
+    (item) => item.status === "pending" || item.status === "failed",
+  );
+
+  if (pending.length === 0) {
+    addLog(t("messages.noQuestions"), "warning");
+    return;
+  }
+
+  questions.forEach((item) => {
+    if (item.status === "failed") {
+      item.status = "pending";
+      item.error = null;
+    }
+  });
+
+  saveQuestions();
+  updateUI();
+  addLog(t("messages.openingChatGPT"), "info");
+
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "OPEN_CHATGPT" });
+    if (!result.success) {
+      addLog(`${t("messages.cannotOpenChatGPT")}: ${result.error}`, "error");
+      return;
+    }
+  } catch (error) {
+    addLog(`${t("messages.error")}: ${error.message}`, "error");
+    return;
+  }
+
+  isRunning = true;
+  isPaused = false;
+  currentIndex = 0;
+  updateControlButtons();
+
+  addLog(t("messages.startingBatch"), "info");
+  addLog(t("messages.foundPending", { count: pending.length }), "info");
+  addLog(t("messages.waitingPage"), "info");
+
+  await sleep(3000);
+
+  addLog(t("messages.startingFirst"), "info");
+  processNextQuestion();
+}
+
+function handlePause() {
+  isPaused = true;
+  updateControlButtons();
+  addLog(t("messages.executionPaused"), "warning");
+}
+
+function handleResume() {
+  isPaused = false;
+  updateControlButtons();
+  addLog(t("messages.executionResumed"), "info");
+  processNextQuestion();
+}
+
+function handleStop() {
+  isRunning = false;
+  isPaused = false;
+  let resetCount = 0;
+
+  questions.forEach((question) => {
+    if (question.status === "processing") {
+      question.status = "pending";
+      resetCount++;
+    }
+  });
+
+  saveQuestions();
+  updateControlButtons();
+  updateUI();
+
+  if (resetCount > 0) {
+    addLog(`⏹️ 已停止执行，${resetCount} 个问题已重置为待处理状态`, "warning");
+  } else {
+    addLog(t("messages.executionStopped"), "warning");
+  }
+}
+
+function handleRetryFailed() {
+  if (isRunning) {
+    addLog(t("messages.pleaseStopFirst"), "warning");
+    return;
+  }
+
+  const failed = questions.filter((item) => item.status === "failed");
+  if (failed.length === 0) {
+    addLog(t("messages.noFailedQuestions"), "info");
+    return;
+  }
+
+  failed.forEach((item) => {
+    item.status = "pending";
+    item.error = null;
+  });
+
+  saveQuestions();
+  updateUI();
+  addLog(t("messages.resetFailed").replace("{count}", failed.length), "success");
+}
+
+async function processNextQuestion() {
+  if (!isRunning || isPaused) return;
+
+  let next = null;
+  for (let i = currentIndex; i < questions.length; i++) {
+    if (questions[i].status === "pending") {
+      next = questions[i];
+      currentIndex = i;
+      break;
+    }
+  }
+
+  if (!next) {
+    isRunning = false;
+    updateControlButtons();
+    addLog(t("messages.allCompleted"), "success");
+    return;
+  }
+
+  next.status = "processing";
+  saveQuestions();
+  updateUI();
+
+  const preview = next.question.substring(0, 50);
+  addLog(`[${currentIndex + 1}/${questions.length}]: ${preview}...`, "info");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "PROCESS_QUESTION",
+      question: next.question,
+      questionId: next.id,
+    });
+
+    if (!response || !response.success) {
+      throw new Error(response?.error || "No response from background script");
+    }
+
+    addLog(t("messages.submittedWaiting"), "info");
+  } catch (error) {
+    next.status = "failed";
+    next.error = error.message;
+    saveQuestions();
+    updateUI();
+    addLog(`${t("messages.processingFailed")}: ${error.message}`, "error");
+    currentIndex++;
+
+    if (isRunning && !isPaused) {
+      await sleep(2000);
+      processNextQuestion();
+    }
+  }
+}
+
+function handleQuestionComplete(result) {
+  const question = questions.find((item) => item.id === result.questionId);
+  if (!question || question.status === "completed" || question.status === "failed") {
+    return;
+  }
+
+  if (result.success) {
+    question.status = "completed";
+    question.answer = result.answer;
+    question.sources = result.sources || [];
+    question.completedAt = Date.now();
+    addLog(`${t("messages.completed")}: ${question.question.substring(0, 50)}...`, "success");
+  } else {
+    question.status = "failed";
+    question.error = result.error;
+    question.completedAt = Date.now();
+    addLog(
+      `${t("messages.failed")}: ${question.question.substring(0, 50)}... - ${result.error}`,
+      "error",
+    );
+  }
+
+  saveQuestions();
+  updateUI();
+  currentIndex++;
+
+  if (isRunning && !isPaused) {
+    addLog(t("messages.waitingNext"), "info");
+    sleep(3000).then(() => processNextQuestion());
+  }
+}
+
+function handleExport() {
+  if (questions.length === 0) {
+    addLog(t("messages.noResults"), "warning");
+    return;
+  }
+
+  const payload = {
+    exportTime: new Date().toISOString(),
+    totalQuestions: questions.length,
+    completedQuestions: questions.filter((q) => q.status === "completed").length,
+    questions: questions.map((q) => ({
+      question: q.question,
+      status: q.status,
+      answer: q.answer,
+      sources: q.sources,
+      timestamp: q.timestamp,
+      completedAt: q.completedAt,
+      error: q.error,
+    })),
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `perplexity-answers-${Date.now()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+
+  addLog(t("messages.resultsExported"), "success");
+}
+
+function handleClearAll() {
+  if (isRunning) {
+    addLog("请先停止处理", "warning");
+    return;
+  }
+
+  const confirmed = confirm("确定要清空所有问题吗？");
+  if (!confirmed) return;
+
+  questions = [];
+  saveQuestions();
+  updateUI();
+  addLog(t("messages.allCleared"), "info");
+}
+
+function updateUI() {
+  updateStatistics();
+  updateQuestionsList();
+  updateControlButtons();
+}
+
+function updateStatValue(node, value) {
+  const previous = parseInt(node.textContent) || 0;
+  node.textContent = value;
+
+  if (value > previous) {
+    node.classList.remove("updated");
+    // Trigger reflow to restart animation
+    // eslint-disable-next-line no-unused-expressions
+    node.offsetWidth;
+    node.classList.add("updated");
+    setTimeout(() => node.classList.remove("updated"), 400);
+  }
+}
+
+function updateStatistics() {
+  const total = questions.length;
+  const done = questions.filter((q) => q.status === "completed" || q.status === "failed").length;
+  const success = questions.filter((q) => q.status === "completed").length;
+  const failed = questions.filter((q) => q.status === "failed").length;
+  const processing = questions.filter((q) => q.status === "processing").length;
+
+  updateStatValue(totalCount, total);
+  updateStatValue(completedCount, done);
+  updateStatValue(successCount, success);
+  updateStatValue(failedCount, failed);
+
+  const percent = total > 0 ? (done / total) * 100 : 0;
+  progressFill.style.width = `${percent}%`;
+  progressPercent.textContent = Math.round(percent) + "%";
+
+  if (isRunning && processing > 0) {
+    const processingIndex = questions.findIndex((q) => q.status === "processing");
+    if (processingIndex !== -1) {
+      const current = processingIndex + 1;
+      progressText.textContent = t("progress.processing", { current, total });
+    } else {
+      progressText.textContent = t("progress.running");
+    }
+  } else {
+    let key = "progress.ready";
+    if (isPaused) {
+      key = "progress.paused";
+    } else if (total > 0 && done === total) {
+      key = "progress.completed";
+    }
+    progressText.textContent = t(key);
+  }
+
+  const failedStat = document.querySelector(".stat-failed");
+  if (failedStat) {
+    if (failed === 0) {
+      failedStat.classList.add("stat-muted");
+    } else {
+      failedStat.classList.remove("stat-muted");
+    }
+  }
+}
+
+function updateQuestionsList() {
+  if (questions.length === 0) {
+    questionsList.innerHTML = `
+      <div class="empty-state">
+        <p data-i18n="questions.noQuestions">${t("questions.noQuestions")}</p>
+        <p data-i18n="questions.addToStart">${t("questions.addToStart")}</p>
+      </div>
+    `;
+    return;
+  }
+
+  questionsList.innerHTML = "";
+  [...questions].reverse().forEach((question, index) => {
+    const item = createQuestionItem(question, index);
+    questionsList.appendChild(item);
+  });
+}
+
+function createQuestionItem(question) {
+  const container = document.createElement("div");
+  container.className = "question-item";
+  container.dataset.id = question.id;
+
+  const status = question.status;
+  const statusLabel = t("questions.status." + status);
+
+  let details = "";
+  if (status === "completed") {
+    let sourcesHtml = "";
+    if (question.sources && question.sources.length > 0) {
+      sourcesHtml = `
+        <div class="detail-section">
+          <h4>${t("questions.sources")} (${question.sources.length})</h4>
+          <ul class="sources-list">
+            ${question.sources
+              .map(
+                (source) => `
+              <li class="source-item">
+                <div class="source-title">${escapeHtml(source.title)}</div>
+                <a href="${escapeHtml(source.url)}" target="_blank" class="source-url">${escapeHtml(source.url)}</a>
+                ${
+                  source.snippet
+                    ? `<div class="source-snippet">${escapeHtml(source.snippet)}</div>`
+                    : ""
+                }
+              </li>
+            `,
+              )
+              .join("")}
+          </ul>
+        </div>
+      `;
+    }
+
+    details = `
+      <div class="question-details">
+        <div class="detail-section">
+          <h4>${t("questions.question")}</h4>
+          <div class="answer-text">${escapeHtml(question.question)}</div>
+        </div>
+        <div class="detail-section">
+          <h4>${t("questions.answer")}</h4>
+          <div class="answer-text">${escapeHtml(question.answer || t("questions.noAnswer"))}</div>
+        </div>
+        ${sourcesHtml}
+      </div>
+    `;
+  } else if (status === "failed") {
+    details = `
+      <div class="question-details">
+        <div class="detail-section">
+          <h4>${t("questions.question")}</h4>
+          <div class="answer-text">${escapeHtml(question.question)}</div>
+        </div>
+        <div class="detail-section">
+          <h4>${t("questions.errorInfo")}</h4>
+          <div class="error-text">${escapeHtml(question.error || t("questions.unknownError"))}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  const completedTime = question.completedAt
+    ? new Date(question.completedAt).toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
+  container.innerHTML = `
+    <div class="question-header">
+      <span class="status-badge ${status}">${statusLabel}</span>
+      <div class="question-text" title="${escapeHtml(question.question)}">
+        ${escapeHtml(question.question)}
+      </div>
+      ${completedTime ? `<span class="question-time">${completedTime}</span>` : ""}
+    </div>
+    ${details}
+  `;
+
+  container.addEventListener("click", () => container.classList.toggle("expanded"));
+  return container;
+}
+
+function updateControlButtons() {
+  idleButtons.style.display = "none";
+  runningButtons.style.display = "none";
+  pausedButtons.style.display = "none";
+
+  if (isRunning) {
+    if (isPaused) {
+      pausedButtons.style.display = "flex";
+    } else {
+      runningButtons.style.display = "flex";
+    }
+  } else {
+    idleButtons.style.display = "flex";
+  }
+
+  const hasFailed = questions.some((item) => item.status === "failed");
+  retryButtonContainer.style.display = hasFailed && !isRunning ? "flex" : "none";
+}
+
+function addLog(message, level = "info") {
+  const entry = document.createElement("div");
+  entry.className = `log-entry ${level}`;
+  const time = new Date().toLocaleTimeString();
+  entry.textContent = `[${time}] ${message}`;
+  logContainer.appendChild(entry);
+  logContainer.scrollTop = logContainer.scrollHeight;
+
+  while (logContainer.children.length > 100) {
+    logContainer.removeChild(logContainer.firstChild);
+  }
+}
+
+function saveQuestions() {
+  chrome.storage.local.set({ questions });
+}
+
+async function loadQuestions() {
+  try {
+    const stored = await chrome.storage.local.get(["questions"]);
+    if (stored.questions) {
+      questions = stored.questions;
+      if (questions.some((q) => q.status === "processing")) {
+        isRunning = true;
+        isPaused = false;
+        addLog("🔄 检测到正在处理的任务，已恢复运行状态", "info");
+      }
+      updateUI();
+      addLog(t("messages.loadedQuestions").replace("{count}", questions.length), "info");
+    }
+  } catch (error) {
+    addLog(`${t("messages.loadFailed")}: ${error.message}`, "error");
+  }
+}
+
+function saveWebSearchSetting(value) {
+  chrome.storage.local.set({ useWebSearch: value });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  applyTranslations();
+  loadQuestions();
+  setupEventListeners();
+  updateUI();
+  initializeApp();
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  switch (message.type) {
+    case "QUESTION_COMPLETE":
+      handleQuestionComplete(message.result);
+      sendResponse({ received: true });
+      break;
+    case "UPDATE_PROGRESS":
+      sendResponse({ received: true });
+      break;
+    case "LOG_MESSAGE":
+      addLog(message.message, message.level || "info");
+      sendResponse({ received: true });
+      break;
+    default:
+      sendResponse({ received: false });
+  }
+  return true;
+});
+
+let lastProcessedMessageTimestamp = 0;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function escapeHtml(text) {
+  if (!text) return "";
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.pendingMessage) return;
+
+  const pending = changes.pendingMessage.newValue;
+  if (!pending) return;
+  if (pending.timestamp && pending.timestamp <= lastProcessedMessageTimestamp) return;
+
+  if (pending.timestamp) {
+    lastProcessedMessageTimestamp = pending.timestamp;
+  }
+
+  switch (pending.type) {
+    case "QUESTION_COMPLETE":
+      handleQuestionComplete(pending.result);
+      chrome.storage.local.remove("pendingMessage");
+      break;
+    case "UPDATE_PROGRESS":
+      chrome.storage.local.remove("pendingMessage");
+      break;
+    case "LOG_MESSAGE":
+      addLog(pending.message, pending.level || "info");
+      chrome.storage.local.remove("pendingMessage");
+      break;
+    default:
+      break;
+  }
+});
+
+window.handleBackgroundMessage = function (handler) {
+  chrome.runtime.onMessage.addListener(handler);
+};
+
+function initializeApp() {
+  chrome.storage.local.remove(["authToken", "authEmail"]);
+  addLog(t("messages.ready"), "success");
+}

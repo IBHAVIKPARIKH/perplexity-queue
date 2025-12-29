@@ -1,1 +1,434 @@
-let currentQuestion=null,currentAnswer="",currentSources=[],currentReferences=[],isProcessing=!1,isParsing=!1,sseChunks=[];function injectSSEInterceptor(){try{const e=document.createElement("script");e.src=chrome.runtime.getURL("injected.js"),e.onload=function(){this.remove()},e.onerror=function(){this.remove()},(document.head||document.documentElement).appendChild(e)}catch(e){}}function handleSSEData(e){isProcessing&&currentQuestion&&sseChunks.push(e)}async function handleSSEDone(){isParsing||isProcessing&&currentQuestion&&sseChunks.length>0&&(isParsing=!0,await parseSSEWithBackend())}async function handleStreamEnd(){}async function parseSSEWithBackend(){if(currentQuestion)try{const e=await chrome.storage.local.get(["authToken"]);if(!e.authToken)throw new Error("Not authenticated. Please login first.");const t=CONFIG.DEFAULT_SERVER_URL,n=await fetch(`${t}/api/pplx-sse/parse`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${e.authToken}`},body:JSON.stringify({question:currentQuestion.question,sse_chunks:sseChunks})});if(!n.ok){if(401===n.status)throw new Error("Authentication expired. Please login again.");const e=await n.json();throw new Error(e.detail||"Backend API error")}const r=await n.json();currentAnswer=r.answer.answer||"",currentSources=r.answer.sources||[],currentReferences=r.answer.references||[],handleAnswerComplete()}catch(e){sendQuestionResult(!1,`Backend parsing error: ${e.message}`)}finally{isParsing=!1}}function handleSSEError(e){isProcessing&&currentQuestion&&sendQuestionResult(!1,e)}function handleAnswerComplete(){isProcessing&&currentQuestion&&(currentAnswer.length,sendQuestionResult(!0))}function sendQuestionResult(e,t=null){const n={success:e,questionId:currentQuestion.questionId,question:currentQuestion.question,answer:currentAnswer,sources:currentSources,error:t};chrome.runtime.sendMessage({type:"QUESTION_COMPLETE",result:n},e=>{chrome.runtime.lastError}),isProcessing=!1,currentQuestion=null,currentAnswer="",currentSources=[],currentReferences=[],sseChunks=[]}function waitForElement(e,t=1e4){return new Promise((n,r)=>{const s=document.querySelector(e);if(s)return void n(s);const i=new MutationObserver(()=>{const t=document.querySelector(e);t&&(i.disconnect(),n(t))});i.observe(document.body,{childList:!0,subtree:!0}),setTimeout(()=>{i.disconnect(),r(new Error(`Timeout waiting for element: ${e}`))},t)})}function clickElement(e){if(!e)return!1;try{e.scrollIntoView({behavior:"instant",block:"center"})}catch(e){}try{return e.click(),!0}catch(e){}try{return e.dispatchEvent(new MouseEvent("mousedown",{bubbles:!0,cancelable:!0,view:window})),e.dispatchEvent(new MouseEvent("mouseup",{bubbles:!0,cancelable:!0,view:window})),e.dispatchEvent(new MouseEvent("click",{bubbles:!0,cancelable:!0,view:window})),!0}catch(e){}try{return e.dispatchEvent(new PointerEvent("pointerdown",{bubbles:!0,cancelable:!0})),e.dispatchEvent(new PointerEvent("pointerup",{bubbles:!0,cancelable:!0})),e.click(),!0}catch(e){}return!1}async function clickWithEvents(e){const t=e.getBoundingClientRect(),n=t.left+t.width/2,r=t.top+t.height/2,s=new MouseEvent("mouseover",{bubbles:!0,cancelable:!0,view:window,clientX:n,clientY:r}),i=new MouseEvent("mousedown",{bubbles:!0,cancelable:!0,view:window,clientX:n,clientY:r,button:0}),o=new MouseEvent("mouseup",{bubbles:!0,cancelable:!0,view:window,clientX:n,clientY:r,button:0}),c=new MouseEvent("click",{bubbles:!0,cancelable:!0,view:window,clientX:n,clientY:r,button:0});e.dispatchEvent(s),await sleep(50),e.dispatchEvent(i),await sleep(50),e.dispatchEvent(o),await sleep(50),e.dispatchEvent(c),e.click()}async function inputQuestion(e){try{let t=document.querySelector('#ask-input[contenteditable="true"]');if(t||(t=document.querySelector('div[contenteditable="true"][role="textbox"]')),t||(t=document.querySelector('div[contenteditable="true"][data-lexical-editor="true"]')),t||(t=document.querySelector('div[contenteditable="true"]')),!t)throw new Error("Perplexity input element not found");t.focus(),await sleep(300),t.textContent="",t.textContent=e,t.dispatchEvent(new Event("input",{bubbles:!0})),t.dispatchEvent(new Event("change",{bubbles:!0}));const n=new InputEvent("input",{bubbles:!0,cancelable:!0,composed:!0,data:e,inputType:"insertText"});t.dispatchEvent(n);const r=new KeyboardEvent("keydown",{bubbles:!0,cancelable:!0,composed:!0});return t.dispatchEvent(r),await sleep(500),!0}catch(e){return!1}}async function submitQuestion(){try{await sleep(500);let e=document.querySelector('button[data-testid="submit-button"]');if(e||(e=document.querySelector('button[aria-label="Submit"]')),!e){e=Array.from(document.querySelectorAll("button")).find(e=>null!==e.querySelector('use[xlink\\:href*="arrow-right"]'))}if(!e)throw new Error("Could not find Perplexity submit button");if(e.disabled){let t=0;for(;e.disabled&&t<30;)await sleep(100),t++;if(e.disabled)throw new Error("Submit button remained disabled")}return await clickElement(e),await sleep(1e3),!0}catch(e){return!1}}function sleep(e){return new Promise(t=>setTimeout(t,e))}async function askQuestion(e,t){currentQuestion={question:e,questionId:t},currentAnswer="",currentSources=[],currentReferences=[],sseChunks=[],isProcessing=!0,isParsing=!1;try{if(!await inputQuestion(e))throw new Error("Failed to input question");if(!await submitQuestion())throw new Error("Failed to submit question");return setTimeout(()=>{isProcessing&&currentQuestion&&currentQuestion.questionId===t&&(currentAnswer?handleAnswerComplete():sendQuestionResult(!1,"Timeout waiting for answer"))},12e4),{success:!0,message:"Question submitted, waiting for answer"}}catch(e){return sendQuestionResult(!1,e.message),{success:!1,error:e.message}}}function initializeContentScript(){"loading"===document.readyState?document.addEventListener("DOMContentLoaded",()=>{injectSSEInterceptor()}):injectSSEInterceptor()}window.addEventListener("message",e=>{if(e.source!==window)return;const{type:t,data:n}=e.data;switch(t){case"SSE_DATA":handleSSEData(n);break;case"SSE_DONE":handleSSEDone();break;case"SSE_STREAM_END":handleStreamEnd();break;case"SSE_ERROR":handleSSEError(e.data.error)}}),chrome.runtime.onMessage.addListener((e,t,n)=>"PING"===e.type?(n({ready:!0}),!0):"ASK_QUESTION"===e.type?(askQuestion(e.question,e.questionId).then(e=>n(e)).catch(e=>n({success:!1,error:e.message})),!0):void 0),initializeContentScript();
+let currentQuestion = null;
+let currentAnswer = "";
+let currentSources = [];
+let currentReferences = [];
+let isProcessing = false;
+let isParsing = false;
+let sseChunks = [];
+
+function injectSSEInterceptor() {
+  try {
+    const script = document.createElement("script");
+    script.src = chrome.runtime.getURL("injected.js");
+    script.onload = function () {
+      this.remove();
+    };
+    script.onerror = function () {
+      this.remove();
+    };
+    (document.head || document.documentElement).appendChild(script);
+  } catch (error) {
+    // Swallow injection errors to avoid breaking the host page
+  }
+}
+
+function handleSSEData(chunk) {
+  if (isProcessing && currentQuestion) {
+    sseChunks.push(chunk);
+  }
+}
+
+async function handleSSEDone() {
+  if (isParsing || !isProcessing || !currentQuestion || sseChunks.length === 0) {
+    return;
+  }
+
+  isParsing = true;
+  await parseSSEWithBackend();
+}
+
+async function handleStreamEnd() {}
+
+async function parseSSEWithBackend() {
+  if (!currentQuestion) return;
+
+  try {
+    const { text, sources } = extractAnswerFromChunks(sseChunks);
+    currentAnswer = text || "No answer received from stream.";
+    currentSources = sources;
+    currentReferences = [];
+    handleAnswerComplete();
+  } catch (error) {
+    sendQuestionResult(false, `Backend parsing error: ${error.message}`);
+  } finally {
+    isParsing = false;
+  }
+}
+
+function extractAnswerFromChunks(chunks) {
+  if (!Array.isArray(chunks) || chunks.length === 0) {
+    return { text: "", sources: [] };
+  }
+
+  const parts = [];
+  const sources = [];
+
+  for (const chunk of chunks) {
+    const text = normalizeChunkText(chunk);
+    if (text) {
+      parts.push(text);
+    }
+
+    const chunkSources = normalizeSources(chunk);
+    for (const src of chunkSources) {
+      if (!sources.some((s) => s.url === src.url && s.title === src.title)) {
+        sources.push(src);
+      }
+    }
+  }
+
+  const combined = parts.join("").trim() || parts.join("\n").trim();
+  return { text: combined, sources };
+}
+
+function normalizeChunkText(chunk) {
+  if (!chunk) return "";
+  if (typeof chunk === "string") return chunk;
+  if (Array.isArray(chunk)) return chunk.map(normalizeChunkText).join("");
+  if (typeof chunk.text === "string") return chunk.text;
+  if (Array.isArray(chunk.text)) return chunk.text.map(normalizeChunkText).join("");
+  if (typeof chunk.message === "string") return chunk.message;
+  if (typeof chunk.content === "string") return chunk.content;
+  if (Array.isArray(chunk.content)) return chunk.content.map(normalizeChunkText).join("");
+  if (chunk.delta?.content && typeof chunk.delta.content === "string") return chunk.delta.content;
+  if (chunk.delta?.text && typeof chunk.delta.text === "string") return chunk.delta.text;
+  if (chunk.data && typeof chunk.data === "string") return chunk.data;
+  try {
+    return JSON.stringify(chunk);
+  } catch (error) {
+    return "";
+  }
+}
+
+function normalizeSources(chunk) {
+  if (!chunk || typeof chunk !== "object") return [];
+  const possibleSources = chunk.sources || chunk.references || chunk.citations;
+  if (!Array.isArray(possibleSources)) return [];
+
+  return possibleSources
+    .map((src) => {
+      if (!src) return null;
+      if (typeof src === "string") {
+        return { title: src, url: "", snippet: "" };
+      }
+      return {
+        title: src.title || src.name || src.url || "",
+        url: src.url || src.link || "",
+        snippet: src.snippet || src.text || src.excerpt || "",
+      };
+    })
+    .filter((src) => src && (src.title || src.url));
+}
+
+function handleSSEError(error) {
+  if (isProcessing && currentQuestion) {
+    sendQuestionResult(false, error);
+  }
+}
+
+function handleAnswerComplete() {
+  if (isProcessing && currentQuestion) {
+    sendQuestionResult(true);
+  }
+}
+
+function sendQuestionResult(success, errorMessage = null) {
+  const result = {
+    success,
+    questionId: currentQuestion.questionId,
+    question: currentQuestion.question,
+    answer: currentAnswer,
+    sources: currentSources,
+    error: errorMessage,
+  };
+
+  chrome.runtime.sendMessage(
+    { type: "QUESTION_COMPLETE", result },
+    () => chrome.runtime.lastError,
+  );
+
+  isProcessing = false;
+  currentQuestion = null;
+  currentAnswer = "";
+  currentSources = [];
+  currentReferences = [];
+  sseChunks = [];
+}
+
+function waitForElement(selector, timeout = 10000) {
+  return new Promise((resolve, reject) => {
+    const element = document.querySelector(selector);
+    if (element) {
+      resolve(element);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const target = document.querySelector(selector);
+      if (target) {
+        observer.disconnect();
+        resolve(target);
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => {
+      observer.disconnect();
+      reject(new Error(`Timeout waiting for element: ${selector}`));
+    }, timeout);
+  });
+}
+
+function clickElement(element) {
+  if (!element) return false;
+  try {
+    element.scrollIntoView({ behavior: "instant", block: "center" });
+  } catch (error) {
+    // ignore scroll failures
+  }
+
+  try {
+    element.click();
+    return true;
+  } catch (error) {
+    // fall through
+  }
+
+  try {
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    return true;
+  } catch (error) {
+    // fall through
+  }
+
+  try {
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+    element.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+    element.click();
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function clickWithEvents(element) {
+  const rect = element.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+
+  const over = new MouseEvent("mouseover", {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+  });
+  const down = new MouseEvent("mousedown", {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+    button: 0,
+  });
+  const up = new MouseEvent("mouseup", {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+    button: 0,
+  });
+  const click = new MouseEvent("click", {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+    button: 0,
+  });
+
+  element.dispatchEvent(over);
+  await sleep(50);
+  element.dispatchEvent(down);
+  await sleep(50);
+  element.dispatchEvent(up);
+  await sleep(50);
+  element.dispatchEvent(click);
+  element.click();
+}
+
+async function inputQuestion(question) {
+  try {
+    let input = document.querySelector('#ask-input[contenteditable="true"]');
+    if (!input) {
+      input = document.querySelector('div[contenteditable="true"][role="textbox"]');
+    }
+    if (!input) {
+      input = document.querySelector('div[contenteditable="true"][data-lexical-editor="true"]');
+    }
+    if (!input) {
+      input = document.querySelector('div[contenteditable="true"]');
+    }
+
+    if (!input) {
+      throw new Error("Perplexity input element not found");
+    }
+
+    input.focus();
+    await sleep(300);
+    input.textContent = "";
+    input.textContent = question;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    const inputEvent = new InputEvent("input", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      data: question,
+      inputType: "insertText",
+    });
+    input.dispatchEvent(inputEvent);
+
+    const keydown = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
+    input.dispatchEvent(keydown);
+
+    await sleep(500);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function submitQuestion() {
+  try {
+    await sleep(500);
+    let submitBtn = document.querySelector('button[data-testid="submit-button"]');
+    if (!submitBtn) {
+      submitBtn = document.querySelector('button[aria-label="Submit"]');
+    }
+    if (!submitBtn) {
+      submitBtn = Array.from(document.querySelectorAll("button")).find(
+        (btn) => btn.querySelector('use[xlink\\:href*="arrow-right"]') !== null,
+      );
+    }
+
+    if (!submitBtn) {
+      throw new Error("Could not find Perplexity submit button");
+    }
+
+    if (submitBtn.disabled) {
+      let attempts = 0;
+      while (submitBtn.disabled && attempts < 30) {
+        await sleep(100);
+        attempts++;
+      }
+      if (submitBtn.disabled) {
+        throw new Error("Submit button remained disabled");
+      }
+    }
+
+    await clickElement(submitBtn);
+    await sleep(1000);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function askQuestion(question, questionId) {
+  currentQuestion = { question, questionId };
+  currentAnswer = "";
+  currentSources = [];
+  currentReferences = [];
+  sseChunks = [];
+  isProcessing = true;
+  isParsing = false;
+
+  try {
+    const inputOk = await inputQuestion(question);
+    if (!inputOk) {
+      throw new Error("Failed to input question");
+    }
+
+    const submitted = await submitQuestion();
+    if (!submitted) {
+      throw new Error("Failed to submit question");
+    }
+
+    setTimeout(() => {
+      if (isProcessing && currentQuestion && currentQuestion.questionId === questionId) {
+        if (currentAnswer) {
+          handleAnswerComplete();
+        } else {
+          sendQuestionResult(false, "Timeout waiting for answer");
+        }
+      }
+    }, 120000);
+
+    return { success: true, message: "Question submitted, waiting for answer" };
+  } catch (error) {
+    sendQuestionResult(false, error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+function initializeContentScript() {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      injectSSEInterceptor();
+    });
+  } else {
+    injectSSEInterceptor();
+  }
+}
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+  const { type, data } = event.data;
+  switch (type) {
+    case "SSE_DATA":
+      handleSSEData(data);
+      break;
+    case "SSE_DONE":
+      handleSSEDone();
+      break;
+    case "SSE_STREAM_END":
+      handleStreamEnd();
+      break;
+    case "SSE_ERROR":
+      handleSSEError(event.data.error);
+      break;
+    default:
+      break;
+  }
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "PING") {
+    sendResponse({ ready: true });
+    return true;
+  }
+
+  if (message.type === "ASK_QUESTION") {
+    askQuestion(message.question, message.questionId)
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  return undefined;
+});
+
+initializeContentScript();
