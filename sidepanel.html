@@ -159,8 +159,10 @@
       <h2 data-i18n="questions.title">Question List</h2>
       <div class="action-bar">
         <button id="exportBtn" class="btn btn-primary" data-i18n="questions.exportBtn">Export Results (JSON)</button>
+        <button id="importBtn" class="btn btn-secondary" data-i18n="questions.importBtn">Import Questions (JSON)</button>
         <button id="clearAllBtn" class="btn btn-danger" data-i18n="questions.clearBtn">Clear All</button>
       </div>
+      <input id="importFileInput" type="file" accept="application/json" style="display: none;" />
       <div id="questionsList" class="questions-list"></div>
     </section>
   </div>
