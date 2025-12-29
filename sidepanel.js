@@ -60,6 +60,7 @@ const KEY_MAP = {
   "log.title": "logTitle",
   "questions.title": "questionsTitle",
   "questions.exportBtn": "questionsExportBtn",
+  "questions.importBtn": "questionsImportBtn",
   "questions.clearBtn": "questionsClearBtn",
   "questions.question": "questionsQuestion",
   "questions.answer": "questionsAnswer",
@@ -89,6 +90,9 @@ const KEY_MAP = {
   "messages.retryingFailed": "msgRetryingFailed",
   "messages.noResults": "msgNoResults",
   "messages.resultsExported": "msgResultsExported",
+  "messages.resultsImported": "msgResultsImported",
+  "messages.importFailed": "msgImportFailed",
+  "messages.invalidImport": "msgInvalidImport",
   "messages.pleaseStopFirst": "msgPleaseStopFirst",
   "messages.confirmClearAll": "msgConfirmClearAll",
   "messages.allCleared": "msgAllCleared",
@@ -137,6 +141,7 @@ const DEFAULT_MESSAGES = {
   "log.title": "Execution Log",
   "questions.title": "Question List",
   "questions.exportBtn": "Export Results (JSON)",
+  "questions.importBtn": "Import Questions (JSON)",
   "questions.clearBtn": "Clear All",
   "questions.question": "Question",
   "questions.answer": "Answer",
@@ -160,6 +165,9 @@ const DEFAULT_MESSAGES = {
   "messages.noFailedQuestions": "No failed questions",
   "messages.resetFailed": "{count} failed questions reset",
   "messages.resultsExported": "Results exported",
+  "messages.resultsImported": "Imported {count} questions",
+  "messages.importFailed": "Import failed",
+  "messages.invalidImport": "Invalid import file format",
   "messages.pleaseStopFirst": "Please stop current run first",
   "messages.allCleared": "All questions cleared",
   "messages.completed": "Completed",
@@ -195,7 +203,9 @@ const stopBtn = document.getElementById("stopBtn");
 const stopBtn2 = document.getElementById("stopBtn2");
 const retryFailedBtn = document.getElementById("retryFailedBtn");
 const exportBtn = document.getElementById("exportBtn");
+const importBtn = document.getElementById("importBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
+const importFileInput = document.getElementById("importFileInput");
 const progressText = document.getElementById("progressText");
 const progressPercent = document.getElementById("progressPercent");
 const idleButtons = document.getElementById("idleButtons");
@@ -220,6 +230,8 @@ function setupEventListeners() {
   stopBtn2.addEventListener("click", handleStop);
   retryFailedBtn.addEventListener("click", handleRetryFailed);
   exportBtn.addEventListener("click", handleExport);
+  importBtn.addEventListener("click", handleImportClick);
+  importFileInput.addEventListener("change", handleImportFile);
   clearAllBtn.addEventListener("click", handleClearAll);
 }
 
@@ -517,11 +529,26 @@ function handleExport() {
     return;
   }
 
+  const total = questions.length;
+  const completed = questions.filter((q) => q.status === "completed").length;
+  const failed = questions.filter((q) => q.status === "failed").length;
+  const pending = questions.filter((q) => q.status === "pending").length;
+
   const payload = {
     exportTime: new Date().toISOString(),
-    totalQuestions: questions.length,
-    completedQuestions: questions.filter((q) => q.status === "completed").length,
+    totalQuestions: total,
+    completedQuestions: completed,
+    failedQuestions: failed,
+    pendingQuestions: pending,
+    summary: {
+      total,
+      completed,
+      failed,
+      pending,
+      successRate: total > 0 ? completed / total : 0,
+    },
     questions: questions.map((q) => ({
+      id: q.id,
       question: q.question,
       status: q.status,
       answer: q.answer,
@@ -545,6 +572,124 @@ function handleExport() {
   URL.revokeObjectURL(url);
 
   addLog(t("messages.resultsExported"), "success");
+}
+
+function handleImportClick() {
+  if (isRunning) {
+    addLog(t("messages.pleaseStopFirst"), "warning");
+    return;
+  }
+  importFileInput.value = "";
+  importFileInput.click();
+}
+
+function parseImportedQuestions(data) {
+  if (!data) return [];
+
+  const allowedStatuses = new Set(["pending", "completed", "failed"]);
+  const collected = [];
+
+  const normalizeItem = (item, meta = {}) => {
+    if (!item) return null;
+
+    if (typeof item === "string") {
+      const question = item.trim();
+      return question
+        ? {
+            id: generateUUID(),
+            question,
+            status: "pending",
+            answer: "",
+            sources: [],
+            timestamp: Date.now(),
+            error: null,
+            ...meta,
+          }
+        : null;
+    }
+
+    if (typeof item === "object" && typeof item.question === "string") {
+      const status = allowedStatuses.has(item.status) ? item.status : "pending";
+      const question = item.question.trim();
+      if (!question) return null;
+      return {
+        id: item.id || generateUUID(),
+        question,
+        status,
+        answer: item.answer || "",
+        sources: Array.isArray(item.sources) ? item.sources : [],
+        timestamp: item.timestamp || Date.now(),
+        completedAt: item.completedAt || null,
+        error: item.error || null,
+        ...meta,
+      };
+    }
+
+    if (typeof item === "object" && typeof item.text === "string") {
+      return normalizeItem(
+        { question: item.text, status: item.status, answer: item.answer, sources: item.sources },
+        meta,
+      );
+    }
+
+    return null;
+  };
+
+  const pushFromList = (list, metaFactory) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((entry, idx) => {
+      const normalized = normalizeItem(entry, metaFactory ? metaFactory(idx) : undefined);
+      if (normalized) collected.push(normalized);
+    });
+  };
+
+  if (Array.isArray(data)) {
+    pushFromList(data);
+  } else if (data && typeof data === "object") {
+    pushFromList(data.questions || data.messages);
+
+    if (data.sequences && typeof data.sequences === "object") {
+      Object.entries(data.sequences).forEach(([sequenceId, sequenceItems]) => {
+        pushFromList(sequenceItems, (idx) => ({ sequenceId, sequenceIndex: idx }));
+      });
+    }
+  }
+
+  return collected.filter(Boolean).filter((item) => item.question);
+}
+
+function handleImportFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const json = JSON.parse(reader.result);
+      const imported = parseImportedQuestions(json);
+
+      if (!imported.length) {
+        addLog(t("messages.invalidImport"), "error");
+        return;
+      }
+
+      questions = [...questions, ...imported];
+      saveQuestions();
+      updateUI();
+      addLog(t("messages.resultsImported", { count: imported.length }), "success");
+    } catch (error) {
+      addLog(`${t("messages.importFailed")}: ${error.message}`, "error");
+    } finally {
+      importFileInput.value = "";
+    }
+  };
+
+  reader.onerror = () => {
+    addLog(t("messages.importFailed"), "error");
+    importFileInput.value = "";
+  };
+
+  reader.readAsText(file);
 }
 
 function handleClearAll() {
