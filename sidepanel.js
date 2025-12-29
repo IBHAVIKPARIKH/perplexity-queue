@@ -586,43 +586,76 @@ function handleImportClick() {
 function parseImportedQuestions(data) {
   if (!data) return [];
 
-  const rawList = Array.isArray(data) ? data : Array.isArray(data.questions) ? data.questions : [];
-  if (!rawList.length) return [];
-
   const allowedStatuses = new Set(["pending", "completed", "failed"]);
+  const collected = [];
 
-  return rawList
-    .map((item) => {
-      if (typeof item === "string") {
-        return {
-          id: generateUUID(),
-          question: item.trim(),
-          status: "pending",
-          answer: "",
-          sources: [],
-          timestamp: Date.now(),
-          error: null,
-        };
-      }
+  const normalizeItem = (item, meta = {}) => {
+    if (!item) return null;
 
-      if (item && typeof item === "object" && typeof item.question === "string") {
-        const status = allowedStatuses.has(item.status) ? item.status : "pending";
-        return {
-          id: item.id || generateUUID(),
-          question: item.question.trim(),
-          status,
-          answer: item.answer || "",
-          sources: Array.isArray(item.sources) ? item.sources : [],
-          timestamp: item.timestamp || Date.now(),
-          completedAt: item.completedAt || null,
-          error: item.error || null,
-        };
-      }
+    if (typeof item === "string") {
+      const question = item.trim();
+      return question
+        ? {
+            id: generateUUID(),
+            question,
+            status: "pending",
+            answer: "",
+            sources: [],
+            timestamp: Date.now(),
+            error: null,
+            ...meta,
+          }
+        : null;
+    }
 
-      return null;
-    })
-    .filter(Boolean)
-    .filter((item) => item.question);
+    if (typeof item === "object" && typeof item.question === "string") {
+      const status = allowedStatuses.has(item.status) ? item.status : "pending";
+      const question = item.question.trim();
+      if (!question) return null;
+      return {
+        id: item.id || generateUUID(),
+        question,
+        status,
+        answer: item.answer || "",
+        sources: Array.isArray(item.sources) ? item.sources : [],
+        timestamp: item.timestamp || Date.now(),
+        completedAt: item.completedAt || null,
+        error: item.error || null,
+        ...meta,
+      };
+    }
+
+    if (typeof item === "object" && typeof item.text === "string") {
+      return normalizeItem(
+        { question: item.text, status: item.status, answer: item.answer, sources: item.sources },
+        meta,
+      );
+    }
+
+    return null;
+  };
+
+  const pushFromList = (list, metaFactory) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((entry, idx) => {
+      const normalized = normalizeItem(entry, metaFactory ? metaFactory(idx) : undefined);
+      if (normalized) collected.push(normalized);
+    });
+  };
+
+  if (Array.isArray(data)) {
+    pushFromList(data);
+  } else if (data && typeof data === "object") {
+    pushFromList(data.questions || data.messages);
+
+    if (data.sequences && typeof data.sequences === "object") {
+      Object.entries(data.sequences).forEach(([sequenceId, sequenceItems]) => {
+        pushFromList(sequenceItems, (idx) => ({ sequenceId, sequenceIndex: idx }));
+      });
+    }
+  }
+
+  return collected.filter(Boolean).filter((item) => item.question);
 }
 
 function handleImportFile(event) {
