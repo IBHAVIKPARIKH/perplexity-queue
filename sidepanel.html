@@ -34,17 +34,28 @@
     </section>
 
     <section class="control-section">
-      <h2 data-i18n="control.title">执行控制</h2>
+      <h2 data-i18n="control.title">Execution Control</h2>
       
       <!-- Note: Settings group removed - Perplexity always uses web search and doesn't have private chat -->
       
       <!-- Divider -->
       <div class="control-divider"></div>
+
+      <!-- Conversation Setting -->
+      <div class="setting-row">
+        <label class="checkbox-row">
+          <input type="checkbox" id="reuseConversationToggle" checked />
+          <span data-i18n="settings.reuseChatLabel">Reuse same chat for all questions</span>
+        </label>
+        <div class="setting-hint" data-i18n="settings.reuseChatHint">
+          Keep this on to run all queued questions in one conversation. Turn off to start a fresh chat per question.
+        </div>
+      </div>
       
       <!-- Progress Section -->
       <div class="progress-section">
         <div class="progress-status">
-          <span id="progressText" data-i18n="progress.ready">就绪</span>
+          <span id="progressText" data-i18n="progress.ready">Ready</span>
           <span id="progressPercent" class="progress-badge">0%</span>
         </div>
         <div class="progress-bar">
@@ -58,7 +69,7 @@
         <div id="idleButtons" class="button-state">
           <button id="startBtn" class="btn btn-success btn-large">
             <span class="btn-icon">🚀</span>
-            <span data-i18n="control.startBtn">开始执行</span>
+            <span data-i18n="control.startBtn">Start</span>
           </button>
         </div>
         
@@ -66,11 +77,11 @@
         <div id="runningButtons" class="button-state" style="display: none;">
           <button id="pauseBtn" class="btn btn-warning">
             <span class="btn-icon">⏸</span>
-            <span data-i18n="control.pauseBtn">暂停</span>
+            <span data-i18n="control.pauseBtn">Pause</span>
           </button>
           <button id="stopBtn" class="btn btn-danger">
             <span class="btn-icon">⏹</span>
-            <span data-i18n="control.stopBtn">停止</span>
+            <span data-i18n="control.stopBtn">Stop</span>
           </button>
         </div>
         
@@ -78,11 +89,11 @@
         <div id="pausedButtons" class="button-state" style="display: none;">
           <button id="resumeBtn" class="btn btn-info">
             <span class="btn-icon">▶️</span>
-            <span data-i18n="control.resumeBtn">恢复</span>
+            <span data-i18n="control.resumeBtn">Resume</span>
           </button>
           <button id="stopBtn2" class="btn btn-danger">
             <span class="btn-icon">⏹</span>
-            <span data-i18n="control.stopBtn">停止</span>
+            <span data-i18n="control.stopBtn">Stop</span>
           </button>
         </div>
         
@@ -90,7 +101,7 @@
         <div id="retryButtonContainer" class="button-state" style="display: none; margin-top: 8px;">
           <button id="retryFailedBtn" class="btn btn-secondary btn-large">
             <span class="btn-icon">🔄</span>
-            <span data-i18n="control.retryBtn">重试失败问题</span>
+            <span data-i18n="control.retryBtn">Retry Failed</span>
           </button>
         </div>
       </div>
@@ -104,7 +115,7 @@
             </svg>
           </div>
           <div class="stat-content">
-            <div class="stat-label" data-i18n="stats.total">总数</div>
+            <div class="stat-label" data-i18n="stats.total">Total</div>
             <div class="stat-value" id="totalCount">0</div>
           </div>
         </div>
@@ -117,7 +128,7 @@
             </svg>
           </div>
           <div class="stat-content">
-            <div class="stat-label" data-i18n="stats.completed">已完成</div>
+            <div class="stat-label" data-i18n="stats.completed">Completed</div>
             <div class="stat-value" id="completedCount">0</div>
           </div>
         </div>
@@ -130,7 +141,7 @@
             </svg>
           </div>
           <div class="stat-content">
-            <div class="stat-label" data-i18n="stats.success">成功</div>
+            <div class="stat-label" data-i18n="stats.success">Success</div>
             <div class="stat-value" id="successCount">0</div>
           </div>
         </div>
@@ -143,7 +154,7 @@
             </svg>
           </div>
           <div class="stat-content">
-            <div class="stat-label" data-i18n="stats.failed">失败</div>
+            <div class="stat-label" data-i18n="stats.failed">Failed</div>
             <div class="stat-value" id="failedCount">0</div>
           </div>
         </div>
@@ -159,8 +170,10 @@
       <h2 data-i18n="questions.title">Question List</h2>
       <div class="action-bar">
         <button id="exportBtn" class="btn btn-primary" data-i18n="questions.exportBtn">Export Results (JSON)</button>
+        <button id="importBtn" class="btn btn-secondary" data-i18n="questions.importBtn">Import Questions (JSON)</button>
         <button id="clearAllBtn" class="btn btn-danger" data-i18n="questions.clearBtn">Clear All</button>
       </div>
+      <input id="importFileInput" type="file" accept="application/json" style="display: none;" />
       <div id="questionsList" class="questions-list"></div>
     </section>
   </div>
