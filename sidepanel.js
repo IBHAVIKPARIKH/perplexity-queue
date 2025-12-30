@@ -50,6 +50,8 @@ const KEY_MAP = {
   "control.resumeBtn": "controlResumeBtn",
   "control.stopBtn": "controlStopBtn",
   "control.retryBtn": "controlRetryBtn",
+  "control.reuseConversation": "controlReuseConversation",
+  "control.reuseConversationHint": "controlReuseConversationHint",
   "control.useWebSearch": "controlUseWebSearch",
   "control.useWebSearchHint": "controlUseWebSearchHint",
   "stats.total": "statsTotal",
@@ -135,6 +137,9 @@ const KEY_MAP = {
   "control.resumeBtn": "Resume",
   "control.stopBtn": "Stop",
   "control.retryBtn": "Retry Failed",
+  "control.reuseConversation": "Reuse conversation",
+  "control.reuseConversationHint":
+    "Reuse the existing Perplexity tab for each question (disable to open a fresh tab per question)",
   "stats.total": "Total",
   "stats.completed": "Completed",
   "stats.success": "Success",
@@ -214,6 +219,7 @@ const resumeBtn = document.getElementById("resumeBtn");
 const stopBtn = document.getElementById("stopBtn");
 const stopBtn2 = document.getElementById("stopBtn2");
 const retryFailedBtn = document.getElementById("retryFailedBtn");
+const reuseConversationToggle = document.getElementById("reuseConversationToggle");
 const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
@@ -589,6 +595,17 @@ function handleExport() {
       error: q.error,
     })),
   };
+
+  const completedWithoutSources = payload.questions.filter(
+    (q) => q.status === "completed" && q.sources.some((src) => !src.url || !src.domain),
+  );
+  if (completedWithoutSources.length > 0) {
+    addLog(
+      "Cannot export: some completed questions are missing source URLs or domains. Please check results.",
+      "warning",
+    );
+    return;
+  }
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
@@ -983,7 +1000,7 @@ async function loadSettings() {
 
 async function loadQuestions() {
   try {
-    const stored = await chrome.storage.local.get(["questions"]);
+    const stored = await chrome.storage.local.get(["questions", "reuseConversation"]);
     if (stored.questions) {
       questions = stored.questions;
       if (questions.some((q) => q.status === "processing")) {
@@ -993,6 +1010,13 @@ async function loadQuestions() {
       }
       updateUI();
       addLog(t("messages.loadedQuestions").replace("{count}", questions.length), "info");
+    }
+
+    if (stored.reuseConversation !== undefined) {
+      reuseConversationToggle.checked = Boolean(stored.reuseConversation);
+    } else {
+      reuseConversationToggle.checked = true;
+      saveReuseConversationSetting(true);
     }
   } catch (error) {
     addLog(`${t("messages.loadFailed")}: ${error.message}`, "error");
