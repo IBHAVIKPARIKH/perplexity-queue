@@ -224,7 +224,6 @@ const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const importFileInput = document.getElementById("importFileInput");
-const reuseConversationToggle = document.getElementById("reuseConversationToggle");
 const progressText = document.getElementById("progressText");
 const progressPercent = document.getElementById("progressPercent");
 const idleButtons = document.getElementById("idleButtons");
@@ -353,7 +352,7 @@ function handleClearInput() {
 // Persist the user's preference for reusing the same conversation tab.
 function handleReuseToggle() {
   reuseConversation = !!reuseConversationToggle.checked;
-  chrome.storage.local.set({ reuseConversation });
+  saveReuseConversationSetting(reuseConversation);
 }
 
 // Start processing pending questions, honoring the reuseConversation flag.
@@ -979,6 +978,10 @@ function addLog(message, level = "info") {
 
 function saveQuestions() {
   chrome.storage.local.set({ questions });
+}
+
+function saveReuseConversationSetting(value) {
+  chrome.storage.local.set({ reuseConversation: value });
 }
 
 async function loadSettings() {
