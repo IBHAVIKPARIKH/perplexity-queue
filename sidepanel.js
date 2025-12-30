@@ -1,5 +1,8 @@
-// Force default UI language to English to keep the extension consistent for all users.
-const BROWSER_LANG = "en";
+(() => {
+  "use strict";
+
+  // Force default UI language to English to keep the extension consistent for all users.
+  const BROWSER_LANG = "en";
 
 const KEY_MAP = {
   title: "title",
@@ -122,8 +125,8 @@ const KEY_MAP = {
   "messages.ready": "msgReady",
 };
 
-const DEFAULT_MESSAGES = {
-  title: "Perplexity Batch Question Assistant",
+  const DEFAULT_MESSAGES = {
+    title: "Perplexity Batch Question Assistant",
   "input.title": "Question Input",
   "input.placeholder": "Enter one question per line, batch input supported...",
   "input.addBtn": "Add Questions",
@@ -180,6 +183,8 @@ const DEFAULT_MESSAGES = {
   "messages.invalidImport": "Invalid import file format",
   "messages.pleaseStopFirst": "Please stop current run first",
   "messages.allCleared": "All questions cleared",
+  "messages.stopReset": "Stopped; {count} in-progress questions reset to pending",
+  "messages.confirmClearAll": "Are you sure you want to clear all questions?",
   "messages.completed": "Completed",
   "messages.failed": "Failed",
   "messages.waitingNext": "Waiting for next question...",
@@ -195,10 +200,9 @@ const DEFAULT_MESSAGES = {
   "messages.processingFailed": "Processing failed",
   "messages.loadedQuestions": "Loaded {count} questions",
   "messages.loadFailed": "Failed to load previous questions",
+  "messages.detectedInProgress": "Detected in-progress tasks, resumed running state",
   "messages.ready": "Ready",
-  "messages.reuseConversationEnabled": "Reusing existing Perplexity tab",
-  "messages.reuseConversationDisabled": "Opening a fresh Perplexity tab per question",
-};
+  };
 
 let questions = [];
 let isRunning = false;
@@ -438,7 +442,7 @@ function handleStop() {
   updateUI();
 
   if (resetCount > 0) {
-    addLog(`⏹️ 已停止执行，${resetCount} 个问题已重置为待处理状态`, "warning");
+    addLog(t("messages.stopReset", { count: resetCount }), "warning");
   } else {
     addLog(t("messages.executionStopped"), "warning");
   }
@@ -758,11 +762,11 @@ function handleImportFile(event) {
 
 function handleClearAll() {
   if (isRunning) {
-    addLog("请先停止处理", "warning");
+    addLog(t("messages.pleaseStopFirst"), "warning");
     return;
   }
 
-  const confirmed = confirm("确定要清空所有问题吗？");
+  const confirmed = confirm(t("messages.confirmClearAll"));
   if (!confirmed) return;
 
   questions = [];
@@ -918,7 +922,7 @@ function createQuestionItem(question) {
   }
 
   const completedTime = question.completedAt
-    ? new Date(question.completedAt).toLocaleString("zh-CN", {
+    ? new Date(question.completedAt).toLocaleString("en-US", {
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
@@ -1002,7 +1006,7 @@ async function loadQuestions() {
       if (questions.some((q) => q.status === "processing")) {
         isRunning = true;
         isPaused = false;
-        addLog("🔄 检测到正在处理的任务，已恢复运行状态", "info");
+        addLog(t("messages.detectedInProgress"), "info");
       }
       updateUI();
       addLog(t("messages.loadedQuestions").replace("{count}", questions.length), "info");
@@ -1092,11 +1096,12 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
-window.handleBackgroundMessage = function (handler) {
-  chrome.runtime.onMessage.addListener(handler);
-};
+  window.handleBackgroundMessage = function (handler) {
+    chrome.runtime.onMessage.addListener(handler);
+  };
 
-function initializeApp() {
-  chrome.storage.local.remove(["authToken", "authEmail"]);
-  addLog(t("messages.ready"), "success");
-}
+  function initializeApp() {
+    chrome.storage.local.remove(["authToken", "authEmail"]);
+    addLog(t("messages.ready"), "success");
+  }
+})();

@@ -637,7 +637,7 @@ h2::before {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 数值更新动画 */
+/* Number update animation */
 @keyframes countUp {
   0% {
     transform: scale(0.8);
@@ -1033,4 +1033,3 @@ h2::before {
   transform: none;
   box-shadow: none;
 }
-
