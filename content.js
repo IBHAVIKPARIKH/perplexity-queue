@@ -190,6 +190,10 @@ function handleAnswerComplete() {
 }
 
 function sendQuestionResult(success, errorMessage = null) {
+  if (!currentQuestion) {
+    // Nothing to report (likely already cleaned up); avoid throwing.
+    return;
+  }
   const result = {
     success,
     questionId: currentQuestion.questionId,
@@ -338,7 +342,13 @@ async function waitForAssistantMessage(providerId, previousCount = 0, timeout = 
 
   return new Promise((resolve, reject) => {
     const checkForUpdate = () => {
-      const nodes = getAnswerNodes(providerId);
+      let nodes = [];
+      try {
+        nodes = getAnswerNodes(providerId);
+      } catch (error) {
+        reject(error);
+        return true;
+      }
       if (nodes.length > previousCount) {
         resolve(nodes[nodes.length - 1]);
         return true;
