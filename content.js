@@ -246,31 +246,6 @@ function findElementFromSelectors(selectors = []) {
   return null;
 }
 
-async function waitForElementFromSelectors(selectors = [], timeout = 20000) {
-  const start = Date.now();
-  const found = findElementFromSelectors(selectors);
-  if (found) return found;
-
-  return new Promise((resolve, reject) => {
-    const observer = new MutationObserver(() => {
-      const el = findElementFromSelectors(selectors);
-      if (el) {
-        observer.disconnect();
-        resolve(el);
-      }
-    });
-
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    const timer = setTimeout(() => {
-      observer.disconnect();
-      reject(new Error("Timeout waiting for input element"));
-    }, Math.max(timeout - (Date.now() - start), 0));
-
-    if (timer.unref) timer.unref();
-  });
-}
-
 function findElementsFromSelectors(selectors = []) {
   if (typeof document === "undefined") return [];
   const found = [];
@@ -345,12 +320,10 @@ async function waitForAssistantMessage(providerId, previousCount = 0, timeout = 
 
     observer.observe(document.body, { childList: true, subtree: true });
 
-    const timer = setTimeout(() => {
+    setTimeout(() => {
       observer.disconnect();
       checkForUpdate();
     }, timeout);
-
-    if (timer.unref) timer.unref();
   });
 }
 
@@ -385,23 +358,14 @@ function setInputValue(element, text) {
 
 async function fillPromptForProvider(providerId, question) {
   const provider = getProviderConfig(providerId);
-  const selectors = provider?.selectors?.input || [];
-  const input = await waitForElementFromSelectors(selectors).catch(() => null);
+  const input = findElementFromSelectors(provider?.selectors?.input || []);
   if (!input) return false;
-  const applied = setInputValue(input, question);
-  if (!applied) return false;
-
-  // Some editors (ChatGPT/Gemini) require a small pause to hydrate before submit
-  await sleep(150);
-  input.dispatchEvent(new Event("keydown", { bubbles: true, cancelable: true }));
-  input.dispatchEvent(new Event("keyup", { bubbles: true, cancelable: true }));
-  return true;
+  return setInputValue(input, question);
 }
 
 async function clickSubmitForProvider(providerId) {
   const provider = getProviderConfig(providerId);
-  const selectors = provider?.selectors?.submit || [];
-  let submit = await waitForElementFromSelectors(selectors).catch(() => null);
+  let submit = findElementFromSelectors(provider?.selectors?.submit || []);
   if (!submit) {
     return false;
   }

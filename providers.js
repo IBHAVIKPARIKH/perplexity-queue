@@ -26,21 +26,18 @@ const PROVIDERS = {
     id: "chatgpt",
     label: "ChatGPT",
     url: "https://chat.openai.com/",
-    matches: ["https://chat.openai.com/*", "https://chatgpt.com/*"],
-    hostPermissions: ["https://chat.openai.com/*", "https://chatgpt.com/*"],
+    matches: ["https://chat.openai.com/*"],
+    hostPermissions: ["https://chat.openai.com/*"],
     selectors: {
       input: [
         "textarea[data-id='root']",
         "textarea[aria-label]",
         "form textarea",
-        "textarea[placeholder*='Message']",
-        "div[contenteditable='true'][data-lexical-editor='true']",
       ],
       submit: [
         "button[data-testid='send-button']",
         "button[aria-label*='Send']",
         "form button[type='submit']",
-        "button[aria-label='Send message']",
       ],
       answer: [
         "div[data-message-author-role='assistant']",
@@ -57,19 +54,14 @@ const PROVIDERS = {
     hostPermissions: ["https://gemini.google.com/*", "https://ai.google.com/*"],
     selectors: {
       input: [
-        "textarea[aria-label*='prompt' i]",
-        "textarea[aria-label*='message' i]",
-        "textarea[placeholder]",
+        "textarea[aria-label*='prompt']",
+        "textarea[aria-label*='message']",
         "textarea",
-        "div[contenteditable='true']",
-        "[role='textbox'][contenteditable='true']",
       ],
       submit: [
-        "button[aria-label*='Submit' i]",
-        "button[aria-label*='Send' i]",
+        "button[aria-label*='Submit']",
+        "button[aria-label*='Send']",
         "form button[type='submit']",
-        "button[type='submit']",
-        "button[data-testid*='send']",
       ],
       answer: [
         "[data-message-author-role='model']",
@@ -87,16 +79,12 @@ const PROVIDERS = {
     selectors: {
       input: [
         "textarea[placeholder*='Type a message']",
-        "textarea[placeholder*='Message']",
-        "textarea[aria-label*='Message' i]",
         "textarea",
         "div[contenteditable='true']",
-        "div[contenteditable='true'][role='textbox']",
       ],
       submit: [
         "button[type='submit']",
         "button[aria-label*='Send']",
-        "button[data-testid*='send']",
         "form button",
       ],
       answer: [
