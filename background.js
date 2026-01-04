@@ -1,20 +1,53 @@
-const PERPLEXITY_URL = "https://www.perplexity.ai/";
+importScripts("providers.js", "config.js");
 
-// Main entry: process a single queued question.
+const DEFAULT_PROVIDER_ID = (CONFIG && CONFIG.DEFAULT_PROVIDER) || "perplexity";
+
+function getProviderConfig(providerId) {
+  if (typeof getProviderById === "function") {
+    return getProviderById(providerId);
+  }
+  if (typeof PROVIDERS !== "undefined") {
+    return PROVIDERS[providerId] || PROVIDERS.perplexity;
+  }
+  return { id: "perplexity", label: "Perplexity", url: "https://www.perplexity.ai/" };
+}
+
+async function resolveProvider(requestedId) {
+  let providerId = requestedId || DEFAULT_PROVIDER_ID;
+
+  if (!requestedId) {
+    try {
+      const stored = await chrome.storage.local.get(["providerId"]);
+      if (stored.providerId) {
+        providerId = stored.providerId;
+      }
+    } catch (error) {
+      providerId = DEFAULT_PROVIDER_ID;
+    }
+  }
+
+  return getProviderConfig(providerId);
+}
+
+// Main entry: process a single queued question for the selected provider.
 async function handleProcessQuestion(request, sender, sendResponse) {
   const reuseConversation = request?.reuseConversation !== false; // default: reuse same chat
 
   try {
-    const tabId = await ensurePerplexityTab(reuseConversation);
-    const ready = await ensureContentScript(tabId, reuseConversation);
+    const provider = await resolveProvider(request.providerId);
+    chrome.storage.local.set({ providerId: provider.id });
+
+    const tabId = await ensureProviderTab(provider, reuseConversation);
+    const ready = await ensureContentScript(tabId, provider);
     if (!ready) {
-      throw new Error("Perplexity tab not ready. Please refresh the page and try again.");
+      throw new Error(`${provider.label} tab not ready. Please refresh the page and try again.`);
     }
 
     const result = await chrome.tabs.sendMessage(tabId, {
       type: "ASK_QUESTION",
       question: request.question,
       questionId: request.questionId,
+      providerId: provider.id,
     });
 
     sendResponse(result);
@@ -23,47 +56,44 @@ async function handleProcessQuestion(request, sender, sendResponse) {
   }
 }
 
-// Find or create a Perplexity tab, optionally forcing a fresh conversation.
-async function ensurePerplexityTab(reuseConversation) {
-  const existing = await chrome.tabs.query({ url: `${PERPLEXITY_URL}*` });
+// Find or create a provider tab, optionally forcing a fresh conversation.
+async function ensureProviderTab(provider, reuseConversation) {
+  const existing = await chrome.tabs.query({ url: `${provider.url}*` });
   let tab = existing[0];
 
   if (!tab) {
-    tab = await chrome.tabs.create({ url: PERPLEXITY_URL, active: true });
+    tab = await chrome.tabs.create({ url: provider.url, active: true });
     await waitForTabLoad(tab.id);
     return tab.id;
   }
 
-  // Reuse without reloading to stay in the same conversation
   if (reuseConversation) {
     await chrome.tabs.update(tab.id, { active: true });
     return tab.id;
   }
 
-  // Force a fresh conversation by reloading the home page
-  await chrome.tabs.update(tab.id, { url: PERPLEXITY_URL, active: true });
+  await chrome.tabs.update(tab.id, { url: provider.url, active: true });
   await waitForTabLoad(tab.id);
   return tab.id;
 }
 
 // Ensure the content script is injected; retry once with a reload.
-async function ensureContentScript(tabId, reuseConversation) {
-  const ready = await waitForContentScript(tabId);
+async function ensureContentScript(tabId, provider) {
+  const ready = await waitForContentScript(tabId, provider.id);
   if (ready) return true;
 
-  // Try a single reload to inject the content script
   await chrome.tabs.reload(tabId);
   await sleep(3000);
   await waitForTabLoad(tabId);
-  return waitForContentScript(tabId);
+  return waitForContentScript(tabId, provider.id);
 }
 
 // Poll the tab to see if the content script responds to PING.
-async function waitForContentScript(tabId, attempts = 25) {
+async function waitForContentScript(tabId, providerId, attempts = 25) {
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await chrome.tabs.sendMessage(tabId, { type: "PING" });
-      if (res && res.ready) return true;
+      const res = await chrome.tabs.sendMessage(tabId, { type: "PING", providerId });
+      if (res && res.ready && (!providerId || res.providerId === providerId)) return true;
     } catch (error) {
       await sleep(1200);
     }
@@ -76,17 +106,20 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function handleOpenPerplexity(request, sendResponse) {
+async function handleOpenProvider(request, sendResponse) {
   try {
-    const existing = await chrome.tabs.query({ url: `${PERPLEXITY_URL}*` });
+    const provider = await resolveProvider(request.providerId);
+    chrome.storage.local.set({ providerId: provider.id });
+
+    const existing = await chrome.tabs.query({ url: `${provider.url}*` });
     if (existing.length > 0) {
       await chrome.tabs.update(existing[0].id, { active: true });
-      sendResponse({ success: true, tabId: existing[0].id });
+      sendResponse({ success: true, tabId: existing[0].id, providerId: provider.id });
       return;
     }
 
-    const tab = await chrome.tabs.create({ url: PERPLEXITY_URL, active: true });
-    sendResponse({ success: true, tabId: tab.id });
+    const tab = await chrome.tabs.create({ url: provider.url, active: true });
+    sendResponse({ success: true, tabId: tab.id, providerId: provider.id });
   } catch (error) {
     sendResponse({ success: false, error: error.message });
   }
@@ -144,8 +177,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       forwardToSidePanel(message);
       sendResponse({ received: true });
       return true;
-    case "OPEN_CHATGPT":
-      handleOpenPerplexity(message, sendResponse);
+    case "OPEN_PROVIDER":
+      handleOpenProvider(message, sendResponse);
       return true;
     default:
       break;
@@ -154,7 +187,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && tab.url && tab.url.includes("perplexity.ai")) {
-    // placeholder for future hooks
+  if (changeInfo.status === "complete" && tab.url) {
+    // placeholder for future provider-specific hooks
   }
 });

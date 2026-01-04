@@ -462,6 +462,25 @@ h2::before {
   line-height: 1.4;
 }
 
+.select-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  transition: all 0.2s ease;
+}
+
+.select-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.12);
+  background: #fff;
+}
+
 /* Progress Section */
 .progress-section {
   margin-bottom: 20px;
@@ -813,6 +832,19 @@ h2::before {
   letter-spacing: 0.5px;
   flex-shrink: 0;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.provider-pill {
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  border: 1px solid #c7d2fe;
 }
 
 .status-badge.pending {
