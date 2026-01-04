@@ -190,6 +190,10 @@ function handleAnswerComplete() {
 }
 
 function sendQuestionResult(success, errorMessage = null) {
+  if (!currentQuestion) {
+    // Nothing to report (likely already cleaned up); avoid throwing.
+    return;
+  }
   const result = {
     success,
     questionId: currentQuestion.questionId,
@@ -233,6 +237,46 @@ function waitForElement(selector, timeout = 10000) {
     setTimeout(() => {
       observer.disconnect();
       reject(new Error(`Timeout waiting for element: ${selector}`));
+    }, timeout);
+  });
+}
+
+function waitForElementFromSelectors(selectors = [], timeout = 10000) {
+  if (typeof document === "undefined") return Promise.reject(new Error("DOM not available"));
+  const root = document.body || document.documentElement;
+  if (!root) return Promise.reject(new Error("DOM not ready"));
+  const existing = findElementFromSelectors(selectors);
+  if (existing) return Promise.resolve(existing);
+
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+
+    const checkAndMaybeResolve = () => {
+      const el = findElementFromSelectors(selectors);
+      if (el) {
+        resolve(el);
+        return true;
+      }
+      if (Date.now() - start >= timeout) {
+        reject(new Error(`Timeout waiting for elements: ${selectors.join(", ")}`));
+        return true;
+      }
+      return false;
+    };
+
+    if (checkAndMaybeResolve()) return;
+
+    const observer = new MutationObserver(() => {
+      if (checkAndMaybeResolve()) {
+        observer.disconnect();
+      }
+    });
+
+    observer.observe(root, { childList: true, subtree: true });
+
+    setTimeout(() => {
+      observer.disconnect();
+      checkAndMaybeResolve();
     }, timeout);
   });
 }
@@ -298,7 +342,13 @@ async function waitForAssistantMessage(providerId, previousCount = 0, timeout = 
 
   return new Promise((resolve, reject) => {
     const checkForUpdate = () => {
-      const nodes = getAnswerNodes(providerId);
+      let nodes = [];
+      try {
+        nodes = getAnswerNodes(providerId);
+      } catch (error) {
+        reject(error);
+        return true;
+      }
       if (nodes.length > previousCount) {
         resolve(nodes[nodes.length - 1]);
         return true;
@@ -358,14 +408,18 @@ function setInputValue(element, text) {
 
 async function fillPromptForProvider(providerId, question) {
   const provider = getProviderConfig(providerId);
-  const input = findElementFromSelectors(provider?.selectors?.input || []);
+  const input =
+    (await waitForElementFromSelectors(provider?.selectors?.input || [], 20000).catch(() => null)) ||
+    findElementFromSelectors(provider?.selectors?.input || []);
   if (!input) return false;
   return setInputValue(input, question);
 }
 
 async function clickSubmitForProvider(providerId) {
   const provider = getProviderConfig(providerId);
-  let submit = findElementFromSelectors(provider?.selectors?.submit || []);
+  let submit =
+    (await waitForElementFromSelectors(provider?.selectors?.submit || [], 20000).catch(() => null)) ||
+    findElementFromSelectors(provider?.selectors?.submit || []);
   if (!submit) {
     return false;
   }
