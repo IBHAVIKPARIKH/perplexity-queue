@@ -56,15 +56,23 @@ const PROVIDERS = {
       input: [
         "textarea[aria-label*='prompt']",
         "textarea[aria-label*='message']",
+        "textarea[aria-label*='Enter a prompt']",
+        "div[contenteditable='true'][role='textbox']",
+        "div[contenteditable='true'][aria-label*='prompt']",
+        "div[contenteditable='true'][aria-label*='Message']",
         "textarea",
       ],
       submit: [
         "button[aria-label*='Submit']",
         "button[aria-label*='Send']",
+        "button[type='submit'][aria-label*='Send']",
+        "button[aria-label*='Send message']",
+        "button[data-testid='send-button']",
         "form button[type='submit']",
       ],
       answer: [
         "[data-message-author-role='model']",
+        "article[data-message-author-role='model']",
         "[data-actor='model']",
         "main article",
       ],
