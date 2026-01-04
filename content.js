@@ -476,46 +476,21 @@ async function clickWithEvents(element) {
 
 async function inputPerplexityQuestion(question) {
   try {
-    let input = document.querySelector('#ask-input[contenteditable="true"]');
-    if (!input) {
-      input = document.querySelector('div[contenteditable="true"][role="textbox"]');
-    }
-    if (!input) {
-      input = document.querySelector('div[contenteditable="true"][data-lexical-editor="true"]');
-    }
-    if (!input) {
-      input = document.querySelector('div[contenteditable="true"]');
-    }
+    const input = await waitForElementFromSelectors(
+      [
+        '#ask-input[contenteditable="true"]',
+        'div[contenteditable="true"][role="textbox"]',
+        'div[contenteditable="true"][data-lexical-editor="true"]',
+        'div[contenteditable="true"]',
+      ],
+      20000,
+    ).catch(() => null);
 
     if (!input) {
       throw new Error("Perplexity input element not found");
     }
 
-    input.focus();
-    await sleep(300);
-    input.textContent = "";
-    input.textContent = question;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-
-    const inputEvent = new InputEvent("input", {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      data: question,
-      inputType: "insertText",
-    });
-    input.dispatchEvent(inputEvent);
-
-    const keydown = new KeyboardEvent("keydown", {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    });
-    input.dispatchEvent(keydown);
-
-    await sleep(500);
-    return true;
+    return setInputValue(input, question);
   } catch (error) {
     return false;
   }
@@ -523,16 +498,19 @@ async function inputPerplexityQuestion(question) {
 
 async function submitPerplexityQuestion() {
   try {
-    await sleep(500);
-    let submitBtn = document.querySelector('button[data-testid="submit-button"]');
-    if (!submitBtn) {
-      submitBtn = document.querySelector('button[aria-label="Submit"]');
-    }
-    if (!submitBtn) {
-      submitBtn = Array.from(document.querySelectorAll("button")).find(
+    const submitBtn =
+      (await waitForElementFromSelectors(
+        [
+          'button[data-testid="submit-button"]',
+          'button[aria-label="Submit"]',
+          'button[aria-label="Send"]',
+          'button[type="submit"]',
+        ],
+        10000,
+      ).catch(() => null)) ||
+      Array.from(document.querySelectorAll("button")).find(
         (btn) => btn.querySelector('use[xlink\\:href*="arrow-right"]') !== null,
       );
-    }
 
     if (!submitBtn) {
       throw new Error("Could not find Perplexity submit button");
@@ -654,7 +632,7 @@ if (typeof window !== "undefined") {
   });
 }
 
-if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+  if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "PING") {
       const pageProvider = resolveProviderFromUrl(typeof location !== "undefined" ? location.href : "");
