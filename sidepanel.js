@@ -125,8 +125,8 @@ const KEY_MAP = {
   "messages.ready": "msgReady",
 };
 
-  const DEFAULT_MESSAGES = {
-    title: "Perplexity Batch Question Assistant",
+const DEFAULT_MESSAGES = {
+  title: "Batch Question Assistant",
   "input.title": "Question Input",
   "input.placeholder": "Enter one question per line, batch input supported...",
   "input.addBtn": "Add Questions",
@@ -139,7 +139,7 @@ const KEY_MAP = {
   "control.retryBtn": "Retry Failed",
   "control.reuseConversation": "Reuse conversation",
   "control.reuseConversationHint":
-    "Reuse the existing Perplexity tab for each question (disable to open a fresh tab per question)",
+    "Reuse the existing provider tab for each question (disable to open a fresh tab per question)",
   "stats.total": "Total",
   "stats.completed": "Completed",
   "stats.success": "Success",
@@ -155,7 +155,10 @@ const KEY_MAP = {
   "questions.importBtn": "Import Questions (JSON)",
   "questions.clearBtn": "Clear All",
   "settings.reuseChatLabel": "Reuse same chat for all questions",
-  "settings.reuseChatHint": "Keep this on to run every queued question in one chat. Turn off to start a fresh chat per question.",
+  "settings.reuseChatHint":
+    "Keep this on to run every queued question in one chat. Turn off to start a fresh chat per question.",
+  "settings.providerLabel": "Target provider",
+  "settings.providerHint": "Choose which AI site to run your batch. Default is Perplexity with web search.",
   "questions.question": "Question",
   "questions.answer": "Answer",
   "questions.sources": "Sources",
@@ -189,12 +192,13 @@ const KEY_MAP = {
   "messages.failed": "Failed",
   "messages.waitingNext": "Waiting for next question...",
   "messages.allCompleted": "All questions completed",
-  "messages.openingChatGPT": "Opening Perplexity tab...",
-  "messages.cannotOpenChatGPT": "Could not open Perplexity",
+  "messages.openingProvider": "Opening {provider} tab...",
+  "messages.cannotOpenProvider": "Could not open {provider}",
+  "messages.providerSaved": "Provider set to {provider}",
   "messages.error": "Error",
   "messages.startingBatch": "Starting batch",
   "messages.foundPending": "Found pending questions: {count}",
-  "messages.waitingPage": "Waiting for Perplexity page to load",
+  "messages.waitingPage": "Waiting for {provider} page to load",
   "messages.startingFirst": "Starting first question",
   "messages.submittedWaiting": "Submitted, waiting for answer...",
   "messages.processingFailed": "Processing failed",
@@ -209,6 +213,7 @@ let isRunning = false;
 let isPaused = false;
 let currentIndex = 0;
 let reuseConversation = true;
+let currentProviderId = (CONFIG && CONFIG.DEFAULT_PROVIDER) || "perplexity";
 
 const questionsInput = document.getElementById("questionsInput");
 const addQuestionsBtn = document.getElementById("addQuestionsBtn");
@@ -224,6 +229,8 @@ const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 const importFileInput = document.getElementById("importFileInput");
+const providerSelect = document.getElementById("providerSelect");
+const providerHint = document.getElementById("providerHint");
 const progressText = document.getElementById("progressText");
 const progressPercent = document.getElementById("progressPercent");
 const idleButtons = document.getElementById("idleButtons");
@@ -252,6 +259,9 @@ function setupEventListeners() {
   importFileInput.addEventListener("change", handleImportFile);
   clearAllBtn.addEventListener("click", handleClearAll);
   reuseConversationToggle.addEventListener("change", handleReuseToggle);
+  if (providerSelect) {
+    providerSelect.addEventListener("change", handleProviderChange);
+  }
 }
 
 function t(key, params) {
@@ -301,6 +311,64 @@ function applyTranslations() {
   updateUI();
 }
 
+function getAvailableProviders() {
+  if (typeof getProviderList === "function") {
+    return getProviderList();
+  }
+  if (typeof PROVIDERS !== "undefined") {
+    return Object.values(PROVIDERS);
+  }
+  return [];
+}
+
+function getProviderConfigById(id) {
+  if (typeof getProviderById === "function") {
+    return getProviderById(id);
+  }
+  if (typeof PROVIDERS !== "undefined") {
+    return PROVIDERS[id] || PROVIDERS.perplexity;
+  }
+  return { id: "perplexity", label: "Perplexity" };
+}
+
+function getProviderLabel(providerId) {
+  const provider = getProviderConfigById(providerId);
+  return provider?.label || "Provider";
+}
+
+function renderProviderOptions() {
+  if (!providerSelect) return;
+  const providers = getAvailableProviders();
+  providerSelect.innerHTML = "";
+  providers.forEach((provider) => {
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.textContent = provider.label;
+    providerSelect.appendChild(option);
+  });
+  providerSelect.value = currentProviderId;
+  updateProviderHint();
+}
+
+function updateProviderHint() {
+  if (!providerHint) return;
+  const provider = getProviderConfigById(currentProviderId);
+  const hints = {
+    perplexity: "Perplexity uses streaming answers with citations by default.",
+    chatgpt: "ChatGPT may not always return sources. Use a new chat for isolated runs.",
+    gemini: "Gemini can surface Google results; ensure you are signed in.",
+    claude: "Claude may require workspace access; answers rarely include sources.",
+  };
+  providerHint.textContent = hints[provider.id] || t("settings.providerHint");
+}
+
+function handleProviderChange(event) {
+  currentProviderId = event.target.value || (CONFIG && CONFIG.DEFAULT_PROVIDER) || "perplexity";
+  saveProviderSetting(currentProviderId);
+  updateProviderHint();
+  addLog(t("messages.providerSaved", { provider: getProviderLabel(currentProviderId) }), "info");
+}
+
 function generateUUID() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
     const random = (Math.random() * 16) | 0;
@@ -332,6 +400,7 @@ function handleAddQuestions() {
       sources: [],
       timestamp: Date.now(),
       error: null,
+      providerId: currentProviderId,
     });
     added++;
   });
@@ -380,12 +449,16 @@ async function handleStart() {
 
   saveQuestions();
   updateUI();
-  addLog(t("messages.openingChatGPT"), "info");
+  const providerLabel = getProviderLabel(currentProviderId);
+  addLog(t("messages.openingProvider", { provider: providerLabel }), "info");
 
   try {
-    const result = await chrome.runtime.sendMessage({ type: "OPEN_CHATGPT" });
+    const result = await chrome.runtime.sendMessage({
+      type: "OPEN_PROVIDER",
+      providerId: currentProviderId,
+    });
     if (!result.success) {
-      addLog(`${t("messages.cannotOpenChatGPT")}: ${result.error}`, "error");
+      addLog(`${t("messages.cannotOpenProvider", { provider: providerLabel })}: ${result.error}`, "error");
       return;
     }
   } catch (error) {
@@ -400,7 +473,7 @@ async function handleStart() {
 
   addLog(t("messages.startingBatch"), "info");
   addLog(t("messages.foundPending", { count: pending.length }), "info");
-  addLog(t("messages.waitingPage"), "info");
+  addLog(t("messages.waitingPage", { provider: providerLabel }), "info");
 
   await sleep(3000);
 
@@ -491,6 +564,7 @@ async function processNextQuestion() {
   }
 
   next.status = "processing";
+  next.providerId = currentProviderId;
   saveQuestions();
   updateUI();
 
@@ -503,6 +577,7 @@ async function processNextQuestion() {
       question: next.question,
       questionId: next.id,
       reuseConversation,
+      providerId: currentProviderId,
     });
 
     if (!response || !response.success) {
@@ -532,18 +607,24 @@ function handleQuestionComplete(result) {
     return;
   }
 
+  question.providerId = result.providerId || question.providerId || currentProviderId;
+  const providerLabel = getProviderLabel(question.providerId);
+
   if (result.success) {
     question.status = "completed";
     question.answer = result.answer;
     question.sources = result.sources || [];
     question.completedAt = Date.now();
-    addLog(`${t("messages.completed")}: ${question.question.substring(0, 50)}...`, "success");
+    addLog(
+      `${t("messages.completed")} (${providerLabel}): ${question.question.substring(0, 50)}...`,
+      "success",
+    );
   } else {
     question.status = "failed";
     question.error = result.error;
     question.completedAt = Date.now();
     addLog(
-      `${t("messages.failed")}: ${question.question.substring(0, 50)}... - ${result.error}`,
+      `${t("messages.failed")} (${providerLabel}): ${question.question.substring(0, 50)}... - ${result.error}`,
       "error",
     );
   }
@@ -592,6 +673,7 @@ function handleExport() {
       timestamp: q.timestamp,
       completedAt: q.completedAt,
       error: q.error,
+      providerId: q.providerId || currentProviderId,
     })),
   };
 
@@ -669,6 +751,7 @@ function parseImportedQuestions(data) {
             sources: [],
             timestamp: Date.now(),
             error: null,
+            providerId: currentProviderId,
             ...meta,
           }
         : null;
@@ -687,6 +770,7 @@ function parseImportedQuestions(data) {
         timestamp: item.timestamp || Date.now(),
         completedAt: item.completedAt || null,
         error: item.error || null,
+        providerId: item.providerId || currentProviderId,
         ...meta,
       };
     }
@@ -863,6 +947,7 @@ function createQuestionItem(question) {
 
   const status = question.status;
   const statusLabel = t("questions.status." + status);
+  const providerLabel = getProviderLabel(question.providerId || currentProviderId);
 
   let details = "";
   if (status === "completed") {
@@ -932,6 +1017,7 @@ function createQuestionItem(question) {
   container.innerHTML = `
     <div class="question-header">
       <span class="status-badge ${status}">${statusLabel}</span>
+      <span class="provider-pill">${escapeHtml(providerLabel)}</span>
       <div class="question-text" title="${escapeHtml(question.question)}">
         ${escapeHtml(question.question)}
       </div>
@@ -984,26 +1070,41 @@ function saveReuseConversationSetting(value) {
   chrome.storage.local.set({ reuseConversation: value });
 }
 
+function saveProviderSetting(value) {
+  chrome.storage.local.set({ providerId: value });
+}
+
 async function loadSettings() {
   try {
-    const stored = await chrome.storage.local.get(["reuseConversation"]);
+    const stored = await chrome.storage.local.get(["reuseConversation", "providerId"]);
     if (stored.reuseConversation === false) {
       reuseConversation = false;
     } else {
       reuseConversation = true;
     }
+    if (stored.providerId) {
+      currentProviderId = stored.providerId;
+    } else {
+      currentProviderId = (CONFIG && CONFIG.DEFAULT_PROVIDER) || "perplexity";
+    }
   } catch (error) {
     reuseConversation = true;
+    currentProviderId = (CONFIG && CONFIG.DEFAULT_PROVIDER) || "perplexity";
   }
 
   if (reuseConversationToggle) {
     reuseConversationToggle.checked = reuseConversation;
   }
+
+  renderProviderOptions();
+  if (providerSelect) {
+    providerSelect.value = currentProviderId;
+  }
 }
 
 async function loadQuestions() {
   try {
-    const stored = await chrome.storage.local.get(["questions", "reuseConversation"]);
+    const stored = await chrome.storage.local.get(["questions", "reuseConversation", "providerId"]);
     if (stored.questions) {
       questions = stored.questions;
       if (questions.some((q) => q.status === "processing")) {
@@ -1020,6 +1121,14 @@ async function loadQuestions() {
     } else {
       reuseConversationToggle.checked = true;
       saveReuseConversationSetting(true);
+    }
+
+    if (stored.providerId) {
+      currentProviderId = stored.providerId;
+      if (providerSelect) {
+        providerSelect.value = currentProviderId;
+      }
+      updateProviderHint();
     }
   } catch (error) {
     addLog(`${t("messages.loadFailed")}: ${error.message}`, "error");
