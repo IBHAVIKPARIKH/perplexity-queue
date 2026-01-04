@@ -3,7 +3,7 @@
   "manifest_version": 3,
   "name": "Perplexity Batch Question Assistant",
   "version": "1.0.0",
-  "description": "Batch-send questions to Perplexity and collect results without creating an account.",
+  "description": "Batch-send questions to Perplexity, ChatGPT, Gemini, or Claude and collect results without creating an account.",
   "permissions": [
     "storage",
     "sidePanel",
@@ -12,6 +12,11 @@
   ],
   "host_permissions": [
     "https://www.perplexity.ai/*",
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*",
+    "https://ai.google.com/*",
+    "https://claude.ai/*",
     "https://ai-assistant-api.aimegatron.com/*"
   ],
   "background": {
@@ -20,9 +25,14 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.perplexity.ai/*"
+        "https://www.perplexity.ai/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*",
+        "https://ai.google.com/*",
+        "https://claude.ai/*"
       ],
       "js": [
+        "providers.js",
         "config.js",
         "content.js"
       ],
