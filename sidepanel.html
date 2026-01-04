@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title data-i18n="title">ChatGPT Batch Question Assistant</title>
+  <title data-i18n="title">Batch Question Assistant</title>
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
@@ -11,10 +11,10 @@
   <div id="mainPanel" class="container">
     <header class="hero">
       <div>
-        <p class="hero-kicker">Perplexity Queue</p>
+        <p class="hero-kicker">AI Provider Queue</p>
         <h1>Batch Question Assistant</h1>
         <p class="hero-subtitle">
-          Run your questions in batches without creating an account. Just add questions and start the queue.
+          Run your questions in batches across supported providers. Just add questions and start the queue.
         </p>
       </div>
     </header>
@@ -38,6 +38,19 @@
       
       <!-- Note: Settings group removed - Perplexity always uses web search and doesn't have private chat -->
       
+      <!-- Provider Selection -->
+      <div class="setting-row">
+        <label for="providerSelect" class="checkbox-row">
+          <span data-i18n="settings.providerLabel">Target provider</span>
+        </label>
+        <select id="providerSelect" class="select-input" aria-label="Target provider">
+          <!-- Options populated dynamically -->
+        </select>
+        <div id="providerHint" class="setting-hint" data-i18n="settings.providerHint">
+          Choose which AI site to run your batch. Default is Perplexity with web search.
+        </div>
+      </div>
+
       <!-- Divider -->
       <div class="control-divider"></div>
 
@@ -178,6 +191,7 @@
     </section>
   </div>
 
+  <script src="providers.js"></script>
   <script src="config.js"></script>
   <script src="sidepanel.js"></script>
 </body>

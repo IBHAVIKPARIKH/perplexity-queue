@@ -5,8 +5,47 @@ let currentReferences = [];
 let isProcessing = false;
 let isParsing = false;
 let sseChunks = [];
+const DEFAULT_PROVIDER_ID = (typeof CONFIG !== "undefined" && CONFIG.DEFAULT_PROVIDER) || "perplexity";
+
+let providerHelpers = {};
+if (typeof require !== "undefined") {
+  providerHelpers = require("./providers.js");
+}
+
+function getAvailableProviders() {
+  if (typeof providerHelpers.getProviderList === "function") return providerHelpers.getProviderList();
+  if (typeof globalThis.getProviderList === "function") return globalThis.getProviderList();
+  if (typeof PROVIDERS !== "undefined") return Object.values(PROVIDERS);
+  return [];
+}
+
+function getProviderConfig(providerId) {
+  if (typeof providerHelpers.getProviderById === "function") return providerHelpers.getProviderById(providerId);
+  if (typeof getProviderById === "function") return getProviderById(providerId);
+  if (typeof PROVIDERS !== "undefined") return PROVIDERS[providerId] || PROVIDERS.perplexity;
+  return { id: DEFAULT_PROVIDER_ID, label: "Perplexity", matches: ["https://www.perplexity.ai/*"] };
+}
+
+function resolveProviderFromUrl(url) {
+  if (typeof providerHelpers.resolveProviderByUrl === "function") return providerHelpers.resolveProviderByUrl(url);
+  if (typeof resolveProviderByUrl === "function") return resolveProviderByUrl(url);
+  return getProviderConfig(DEFAULT_PROVIDER_ID);
+}
+
+let activeProviderId =
+  (typeof location !== "undefined" && resolveProviderFromUrl(location.href)?.id) || DEFAULT_PROVIDER_ID;
+
+function setActiveProvider(providerId) {
+  activeProviderId = providerId || DEFAULT_PROVIDER_ID;
+}
+
+function getActiveProvider() {
+  return getProviderConfig(activeProviderId || DEFAULT_PROVIDER_ID);
+}
 
 function injectSSEInterceptor() {
+  if (getActiveProvider().id !== "perplexity") return;
+
   try {
     const script = document.createElement("script");
     script.src = chrome.runtime.getURL("injected.js");
@@ -23,13 +62,19 @@ function injectSSEInterceptor() {
 }
 
 function handleSSEData(chunk) {
-  if (isProcessing && currentQuestion) {
+  if (isProcessing && currentQuestion && getActiveProvider().id === "perplexity") {
     sseChunks.push(chunk);
   }
 }
 
 async function handleSSEDone() {
-  if (isParsing || !isProcessing || !currentQuestion || sseChunks.length === 0) {
+  if (
+    isParsing ||
+    !isProcessing ||
+    !currentQuestion ||
+    sseChunks.length === 0 ||
+    getActiveProvider().id !== "perplexity"
+  ) {
     return;
   }
 
@@ -37,7 +82,9 @@ async function handleSSEDone() {
   await parseSSEWithBackend();
 }
 
-async function handleStreamEnd() {}
+async function handleStreamEnd() {
+  if (getActiveProvider().id !== "perplexity") return;
+}
 
 async function parseSSEWithBackend() {
   if (!currentQuestion) return;
@@ -149,6 +196,7 @@ function sendQuestionResult(success, errorMessage = null) {
     question: currentQuestion.question,
     answer: currentAnswer,
     sources: currentSources,
+    providerId: getActiveProvider().id,
     error: errorMessage,
   };
 
@@ -187,6 +235,198 @@ function waitForElement(selector, timeout = 10000) {
       reject(new Error(`Timeout waiting for element: ${selector}`));
     }, timeout);
   });
+}
+
+function findElementFromSelectors(selectors = []) {
+  if (typeof document === "undefined") return null;
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (element) return element;
+  }
+  return null;
+}
+
+async function waitForElementFromSelectors(selectors = [], timeout = 20000) {
+  const start = Date.now();
+  const found = findElementFromSelectors(selectors);
+  if (found) return found;
+
+  return new Promise((resolve, reject) => {
+    const observer = new MutationObserver(() => {
+      const el = findElementFromSelectors(selectors);
+      if (el) {
+        observer.disconnect();
+        resolve(el);
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    const timer = setTimeout(() => {
+      observer.disconnect();
+      reject(new Error("Timeout waiting for input element"));
+    }, Math.max(timeout - (Date.now() - start), 0));
+
+    if (timer.unref) timer.unref();
+  });
+}
+
+function findElementsFromSelectors(selectors = []) {
+  if (typeof document === "undefined") return [];
+  const found = [];
+  selectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((node) => found.push(node));
+  });
+  return found;
+}
+
+function extractTextFromNode(node) {
+  if (!node) return "";
+  if (typeof node === "string") return node.trim();
+  if (Array.isArray(node)) return node.map(extractTextFromNode).join(" ").trim();
+  if (typeof node.textContent === "string") return node.textContent.trim();
+  if (typeof node.innerText === "string") return node.innerText.trim();
+  return "";
+}
+
+function collectSourcesFromLinks(links = []) {
+  return Array.from(links)
+    .map((link) => {
+      const href = link.href || link.url || link.link || "";
+      const title = extractTextFromNode(link.textContent || link.title || href);
+      let domain = "";
+      try {
+        domain = href ? new URL(href).hostname : "";
+      } catch (error) {
+        domain = "";
+      }
+      return href
+        ? {
+            title: title || href,
+            url: href,
+            domain,
+            snippet: link.snippet || link.excerpt || "",
+          }
+        : null;
+    })
+    .filter(Boolean);
+}
+
+function getAnswerNodes(providerId) {
+  const provider = getProviderConfig(providerId);
+  return findElementsFromSelectors(provider?.selectors?.answer || []);
+}
+
+async function waitForAssistantMessage(providerId, previousCount = 0, timeout = 120000) {
+  if (typeof document === "undefined") throw new Error("DOM not available");
+  const start = Date.now();
+
+  return new Promise((resolve, reject) => {
+    const checkForUpdate = () => {
+      const nodes = getAnswerNodes(providerId);
+      if (nodes.length > previousCount) {
+        resolve(nodes[nodes.length - 1]);
+        return true;
+      }
+      if (Date.now() - start >= timeout) {
+        reject(new Error("Timeout waiting for answer"));
+        return true;
+      }
+      return false;
+    };
+
+    if (checkForUpdate()) return;
+
+    const observer = new MutationObserver(() => {
+      if (checkForUpdate()) {
+        observer.disconnect();
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    const timer = setTimeout(() => {
+      observer.disconnect();
+      checkForUpdate();
+    }, timeout);
+
+    if (timer.unref) timer.unref();
+  });
+}
+
+function setInputValue(element, text) {
+  if (!element) return false;
+  if (typeof element.focus === "function") {
+    element.focus();
+  }
+
+  if (element.tagName === "TEXTAREA" || element.tagName === "INPUT") {
+    element.value = text;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  if (element.getAttribute && element.getAttribute("contenteditable") === "true") {
+    element.textContent = "";
+    element.textContent = text;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  try {
+    element.textContent = text;
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function fillPromptForProvider(providerId, question) {
+  const provider = getProviderConfig(providerId);
+  const selectors = provider?.selectors?.input || [];
+  const input = await waitForElementFromSelectors(selectors).catch(() => null);
+  if (!input) return false;
+  const applied = setInputValue(input, question);
+  if (!applied) return false;
+
+  // Some editors (ChatGPT/Gemini) require a small pause to hydrate before submit
+  await sleep(150);
+  input.dispatchEvent(new Event("keydown", { bubbles: true, cancelable: true }));
+  input.dispatchEvent(new Event("keyup", { bubbles: true, cancelable: true }));
+  return true;
+}
+
+async function clickSubmitForProvider(providerId) {
+  const provider = getProviderConfig(providerId);
+  const selectors = provider?.selectors?.submit || [];
+  let submit = await waitForElementFromSelectors(selectors).catch(() => null);
+  if (!submit) {
+    return false;
+  }
+
+  let attempts = 0;
+  while (submit.disabled && attempts < 30) {
+    await sleep(100);
+    attempts++;
+  }
+
+  return clickElement(submit);
+}
+
+function countAnswerNodes(providerId) {
+  return getAnswerNodes(providerId).length;
+}
+
+function extractAnswerFromNode(node) {
+  if (!node) return { text: "", sources: [] };
+  const text = extractTextFromNode(node);
+  let sources = [];
+  if (node.querySelectorAll) {
+    sources = collectSourcesFromLinks(node.querySelectorAll("a[href]"));
+  }
+  return { text, sources };
 }
 
 function clickElement(element) {
@@ -270,65 +510,43 @@ async function clickWithEvents(element) {
   element.click();
 }
 
-async function inputQuestion(question) {
+async function inputPerplexityQuestion(question) {
   try {
-    let input = document.querySelector('#ask-input[contenteditable="true"]');
-    if (!input) {
-      input = document.querySelector('div[contenteditable="true"][role="textbox"]');
-    }
-    if (!input) {
-      input = document.querySelector('div[contenteditable="true"][data-lexical-editor="true"]');
-    }
-    if (!input) {
-      input = document.querySelector('div[contenteditable="true"]');
-    }
+    const input = await waitForElementFromSelectors(
+      [
+        '#ask-input[contenteditable="true"]',
+        'div[contenteditable="true"][role="textbox"]',
+        'div[contenteditable="true"][data-lexical-editor="true"]',
+        'div[contenteditable="true"]',
+      ],
+      20000,
+    ).catch(() => null);
 
     if (!input) {
       throw new Error("Perplexity input element not found");
     }
 
-    input.focus();
-    await sleep(300);
-    input.textContent = "";
-    input.textContent = question;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-
-    const inputEvent = new InputEvent("input", {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      data: question,
-      inputType: "insertText",
-    });
-    input.dispatchEvent(inputEvent);
-
-    const keydown = new KeyboardEvent("keydown", {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    });
-    input.dispatchEvent(keydown);
-
-    await sleep(500);
-    return true;
+    return setInputValue(input, question);
   } catch (error) {
     return false;
   }
 }
 
-async function submitQuestion() {
+async function submitPerplexityQuestion() {
   try {
-    await sleep(500);
-    let submitBtn = document.querySelector('button[data-testid="submit-button"]');
-    if (!submitBtn) {
-      submitBtn = document.querySelector('button[aria-label="Submit"]');
-    }
-    if (!submitBtn) {
-      submitBtn = Array.from(document.querySelectorAll("button")).find(
+    const submitBtn =
+      (await waitForElementFromSelectors(
+        [
+          'button[data-testid="submit-button"]',
+          'button[aria-label="Submit"]',
+          'button[aria-label="Send"]',
+          'button[type="submit"]',
+        ],
+        10000,
+      ).catch(() => null)) ||
+      Array.from(document.querySelectorAll("button")).find(
         (btn) => btn.querySelector('use[xlink\\:href*="arrow-right"]') !== null,
       );
-    }
 
     if (!submitBtn) {
       throw new Error("Could not find Perplexity submit button");
@@ -357,8 +575,11 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function askQuestion(question, questionId) {
-  currentQuestion = { question, questionId };
+async function askQuestion(question, questionId, providerId) {
+  const provider = getProviderConfig(providerId || activeProviderId);
+  setActiveProvider(provider.id);
+
+  currentQuestion = { question, questionId, providerId: provider.id };
   currentAnswer = "";
   currentSources = [];
   currentReferences = [];
@@ -367,30 +588,50 @@ async function askQuestion(question, questionId) {
   isParsing = false;
 
   try {
-    const inputOk = await inputQuestion(question);
-    if (!inputOk) {
-      throw new Error("Failed to input question");
-    }
-
-    const submitted = await submitQuestion();
-    if (!submitted) {
-      throw new Error("Failed to submit question");
-    }
-
-    setTimeout(() => {
-      if (isProcessing && currentQuestion && currentQuestion.questionId === questionId) {
-        if (currentAnswer) {
-          handleAnswerComplete();
-        } else {
-          sendQuestionResult(false, "Timeout waiting for answer");
-        }
+    if (provider.id === "perplexity") {
+      const inputOk = await inputPerplexityQuestion(question);
+      if (!inputOk) {
+        throw new Error("Failed to input question");
       }
-    }, 120000);
 
-    return { success: true, message: "Question submitted, waiting for answer" };
+      const submitted = await submitPerplexityQuestion();
+      if (!submitted) {
+        throw new Error("Failed to submit question");
+      }
+
+      setTimeout(() => {
+        if (isProcessing && currentQuestion && currentQuestion.questionId === questionId) {
+          if (currentAnswer) {
+            handleAnswerComplete();
+          } else {
+            sendQuestionResult(false, "Timeout waiting for answer");
+          }
+        }
+      }, 120000);
+    } else {
+      const beforeCount = countAnswerNodes(provider.id);
+      const inputOk = await fillPromptForProvider(provider.id, question);
+      if (!inputOk) {
+        throw new Error(`Failed to input question on ${provider.label}`);
+      }
+
+      const submitted = await clickSubmitForProvider(provider.id);
+      if (!submitted) {
+        throw new Error(`Failed to submit question on ${provider.label}`);
+      }
+
+      const latestMessageNode = await waitForAssistantMessage(provider.id, beforeCount);
+      const { text, sources } = extractAnswerFromNode(latestMessageNode);
+      currentAnswer = text || "No answer received.";
+      currentSources = sources || [];
+      currentReferences = [];
+      handleAnswerComplete();
+    }
+
+    return { success: true, message: "Question submitted, waiting for answer", providerId: provider.id };
   } catch (error) {
     sendQuestionResult(false, error.message);
-    return { success: false, error: error.message };
+    return { success: false, error: error.message, providerId: provider.id };
   }
 }
 
@@ -427,15 +668,31 @@ if (typeof window !== "undefined") {
   });
 }
 
-if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+  if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "PING") {
-      sendResponse({ ready: true });
+      const pageProvider = resolveProviderFromUrl(typeof location !== "undefined" ? location.href : "");
+      if (message.providerId && message.providerId !== pageProvider.id) {
+        sendResponse({ ready: false, providerId: pageProvider.id });
+        return true;
+      }
+      setActiveProvider(message.providerId || pageProvider.id);
+      sendResponse({ ready: true, providerId: getActiveProvider().id });
       return true;
     }
 
     if (message.type === "ASK_QUESTION") {
-      askQuestion(message.question, message.questionId)
+      const pageProvider = resolveProviderFromUrl(typeof location !== "undefined" ? location.href : "");
+      const targetProviderId = message.providerId || pageProvider.id;
+      if (pageProvider.id !== targetProviderId) {
+        sendResponse({
+          success: false,
+          error: `Active tab is ${pageProvider.label || pageProvider.id}, expected ${getProviderConfig(targetProviderId).label}`,
+        });
+        return true;
+      }
+      setActiveProvider(targetProviderId);
+      askQuestion(message.question, message.questionId, targetProviderId)
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, error: error.message }));
       return true;
@@ -450,5 +707,13 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { extractAnswerFromChunks, normalizeChunkText, normalizeSources };
+  module.exports = {
+    extractAnswerFromChunks,
+    normalizeChunkText,
+    normalizeSources,
+    resolveProviderFromUrl,
+    collectSourcesFromLinks,
+    extractTextFromNode,
+    getProviderConfig,
+  };
 }
