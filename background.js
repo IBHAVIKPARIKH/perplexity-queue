@@ -78,12 +78,29 @@ async function ensureProviderTab(provider, reuseConversation) {
 }
 
 // Ensure the content script is injected; retry once with a reload.
+function urlMatchesProvider(url, provider) {
+  if (!url || !provider?.matches) return false;
+  return provider.matches.some((pattern) => {
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const normalizedPattern = escaped.replace(/\\\*/g, ".*");
+    const regex = new RegExp(`^${normalizedPattern}$`);
+    return regex.test(url);
+  });
+}
+
 async function ensureContentScript(tabId, provider) {
   const ready = await waitForContentScript(tabId, provider.id);
   if (ready) return true;
 
-  await chrome.tabs.reload(tabId);
-  await sleep(3000);
+  const tab = await chrome.tabs.get(tabId);
+  if (!urlMatchesProvider(tab.url, provider)) {
+    await chrome.tabs.update(tabId, { url: provider.url, active: true });
+    await waitForTabLoad(tabId);
+  } else {
+    await chrome.tabs.reload(tabId);
+    await sleep(3000);
+  }
+
   await waitForTabLoad(tabId);
   return waitForContentScript(tabId, provider.id);
 }
