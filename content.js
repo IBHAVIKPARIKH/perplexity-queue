@@ -404,11 +404,7 @@ function setInputValue(element, text) {
   }
 
   if (element.getAttribute && element.getAttribute("contenteditable") === "true") {
-    element.textContent = "";
-    element.textContent = text;
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
+    return setContentEditableValue(element, text);
   }
 
   try {
@@ -416,6 +412,52 @@ function setInputValue(element, text) {
     return true;
   } catch (error) {
     return false;
+  }
+}
+
+// Best-effort update for Lexical/ProseMirror-style contenteditable inputs.
+function setContentEditableValue(element, text) {
+  try {
+    element.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
+      document.execCommand("selectAll", false);
+      document.execCommand("insertText", false, text);
+    } else {
+      element.textContent = text;
+    }
+
+    element.dispatchEvent(
+      new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertText",
+        data: text,
+      }),
+    );
+    element.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: text,
+      }),
+    );
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  } catch (error) {
+    try {
+      element.textContent = text;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    } catch (innerError) {
+      return false;
+    }
   }
 }
 
@@ -561,7 +603,11 @@ async function inputPerplexityQuestion(question) {
       throw new Error("Perplexity input element not found");
     }
 
-    return setInputValue(input, question);
+    const filled = setInputValue(input, question);
+    if (filled) {
+      await sleep(200);
+    }
+    return filled;
   } catch (error) {
     return false;
   }
