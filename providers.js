@@ -1,3 +1,4 @@
+// Central map of provider metadata used by the background, content, and side panel scripts.
 const PROVIDERS = {
   perplexity: {
     id: "perplexity",
@@ -25,9 +26,10 @@ const PROVIDERS = {
   chatgpt: {
     id: "chatgpt",
     label: "ChatGPT",
-    url: "https://chat.openai.com/",
-    matches: ["https://chat.openai.com/*"],
-    hostPermissions: ["https://chat.openai.com/*"],
+    // Support both the legacy and current ChatGPT domains.
+    url: "https://chatgpt.com/",
+    matches: ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+    hostPermissions: ["https://chatgpt.com/*", "https://chat.openai.com/*"],
     selectors: {
       input: [
         "textarea[data-id='root']",
@@ -107,14 +109,17 @@ const PROVIDERS = {
   },
 };
 
+// Resolve a single provider config by id, falling back to Perplexity.
 function getProviderById(id) {
   return PROVIDERS[id] || PROVIDERS.perplexity;
 }
 
+// Return all providers for UI selection.
 function getProviderList() {
   return Object.values(PROVIDERS);
 }
 
+// Choose a provider based on the current tab's URL.
 function resolveProviderByUrl(url) {
   if (!url) return PROVIDERS.perplexity;
   const match = getProviderList().find((provider) =>
