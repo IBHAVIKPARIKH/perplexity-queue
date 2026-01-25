@@ -1,7 +1,9 @@
+// Background service worker: orchestrates provider tabs + message routing.
 importScripts("providers.js", "config.js");
 
 const DEFAULT_PROVIDER_ID = (CONFIG && CONFIG.DEFAULT_PROVIDER) || "perplexity";
 
+// Resolve provider config by id with safe fallback.
 function getProviderConfig(providerId) {
   if (typeof getProviderById === "function") {
     return getProviderById(providerId);
@@ -12,6 +14,7 @@ function getProviderConfig(providerId) {
   return { id: "perplexity", label: "Perplexity", url: "https://www.perplexity.ai/" };
 }
 
+// Determine the active provider (stored choice or default).
 async function resolveProvider(requestedId) {
   let providerId = requestedId || DEFAULT_PROVIDER_ID;
 
@@ -29,7 +32,7 @@ async function resolveProvider(requestedId) {
   return getProviderConfig(providerId);
 }
 
-// Main entry: process a single queued question for the selected provider.
+// Process a single queued question from the side panel.
 async function handleProcessQuestion(request, sender, sendResponse) {
   const reuseConversation = request?.reuseConversation !== false; // default: reuse same chat
 
@@ -77,7 +80,7 @@ async function ensureProviderTab(provider, reuseConversation) {
   return tab.id;
 }
 
-// Ensure the content script is injected; retry once with a reload.
+// Check whether a tab URL matches the provider match patterns.
 function urlMatchesProvider(url, provider) {
   if (!url || !provider?.matches) return false;
   return provider.matches.some((pattern) => {
@@ -88,6 +91,7 @@ function urlMatchesProvider(url, provider) {
   });
 }
 
+// Ensure content script is active; reload if needed.
 async function ensureContentScript(tabId, provider) {
   const ready = await waitForContentScript(tabId, provider.id);
   if (ready) return true;
@@ -123,6 +127,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Open a provider tab without submitting a question.
 async function handleOpenProvider(request, sendResponse) {
   try {
     const provider = await resolveProvider(request.providerId);
@@ -142,6 +147,7 @@ async function handleOpenProvider(request, sendResponse) {
   }
 }
 
+// Wait for the tab to finish loading before injection.
 async function waitForTabLoad(tabId) {
   const tab = await chrome.tabs.get(tabId);
   if (tab.status === "complete") {
@@ -161,6 +167,7 @@ async function waitForTabLoad(tabId) {
   });
 }
 
+// Forward log/progress messages to the side panel (with storage fallback).
 async function forwardToSidePanel(message) {
   try {
     await chrome.runtime.sendMessage(message);

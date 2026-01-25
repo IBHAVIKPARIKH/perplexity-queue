@@ -1,6 +1,8 @@
 (() => {
   "use strict";
 
+  // Side panel controller: manages UI, queue state, and background messaging.
+
   // Force default UI language to English to keep the extension consistent for all users.
   const BROWSER_LANG = "en";
 
@@ -125,6 +127,7 @@ const KEY_MAP = {
   "messages.ready": "msgReady",
 };
 
+// Fallback strings for environments without i18n bundles.
 const DEFAULT_MESSAGES = {
   title: "Batch Question Assistant",
   "input.title": "Question Input",
@@ -208,6 +211,7 @@ const DEFAULT_MESSAGES = {
   "messages.ready": "Ready",
   };
 
+// In-memory queue state (persisted to chrome.storage.local).
 let questions = [];
 let isRunning = false;
 let isPaused = false;
@@ -245,6 +249,7 @@ const successCount = document.getElementById("successCount");
 const failedCount = document.getElementById("failedCount");
 const progressFill = document.getElementById("progressFill");
 
+// Wire up all UI event handlers.
 function setupEventListeners() {
   addQuestionsBtn.addEventListener("click", handleAddQuestions);
   clearInputBtn.addEventListener("click", handleClearInput);
@@ -264,6 +269,7 @@ function setupEventListeners() {
   }
 }
 
+// Translation helper with fallback strings + token replacement.
 function t(key, params) {
   let message;
   const mappedKey = KEY_MAP[key] || key;
@@ -294,6 +300,7 @@ function t(key, params) {
   return message;
 }
 
+// Apply all localized labels to the UI.
 function applyTranslations() {
   document.title = t("title");
   document.documentElement.lang = BROWSER_LANG;
@@ -336,6 +343,7 @@ function getProviderLabel(providerId) {
   return provider?.label || "Provider";
 }
 
+// Populate provider selection dropdown.
 function renderProviderOptions() {
   if (!providerSelect) return;
   const providers = getAvailableProviders();
@@ -350,6 +358,7 @@ function renderProviderOptions() {
   updateProviderHint();
 }
 
+// Show context-specific provider help text.
 function updateProviderHint() {
   if (!providerHint) return;
   const provider = getProviderConfigById(currentProviderId);
@@ -362,6 +371,7 @@ function updateProviderHint() {
   providerHint.textContent = hints[provider.id] || t("settings.providerHint");
 }
 
+// Persist provider selection changes.
 function handleProviderChange(event) {
   currentProviderId = event.target.value || (CONFIG && CONFIG.DEFAULT_PROVIDER) || "perplexity";
   saveProviderSetting(currentProviderId);
@@ -369,6 +379,7 @@ function handleProviderChange(event) {
   addLog(t("messages.providerSaved", { provider: getProviderLabel(currentProviderId) }), "info");
 }
 
+// Generate a UUID v4-like value for queue entries.
 function generateUUID() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
     const random = (Math.random() * 16) | 0;
@@ -414,16 +425,19 @@ function handleAddQuestions() {
 }
 
 // Clear the textarea without touching the queue.
+// Clear the textarea without touching the queue.
 function handleClearInput() {
   questionsInput.value = "";
 }
 
+// Persist the user's preference for reusing the same conversation tab.
 // Persist the user's preference for reusing the same conversation tab.
 function handleReuseToggle() {
   reuseConversation = !!reuseConversationToggle.checked;
   saveReuseConversationSetting(reuseConversation);
 }
 
+// Start processing pending questions, honoring the reuseConversation flag.
 // Start processing pending questions, honoring the reuseConversation flag.
 async function handleStart() {
   if (questions.length === 0) {
@@ -482,12 +496,14 @@ async function handleStart() {
 }
 
 // Pause the current run; resumes from the same question later.
+// Pause the current run; resumes from the same question later.
 function handlePause() {
   isPaused = true;
   updateControlButtons();
   addLog(t("messages.executionPaused"), "warning");
 }
 
+// Resume processing after a pause.
 // Resume processing after a pause.
 function handleResume() {
   isPaused = false;
@@ -496,6 +512,7 @@ function handleResume() {
   processNextQuestion();
 }
 
+// Stop the current run and reset in-flight questions back to pending.
 // Stop the current run and reset in-flight questions back to pending.
 function handleStop() {
   isRunning = false;
@@ -521,6 +538,7 @@ function handleStop() {
 }
 
 // Move all failed questions back to pending so they can be retried.
+// Move all failed questions back to pending so they can be retried.
 function handleRetryFailed() {
   if (isRunning) {
     addLog(t("messages.pleaseStopFirst"), "warning");
@@ -543,6 +561,7 @@ function handleRetryFailed() {
   addLog(t("messages.resetFailed").replace("{count}", failed.length), "success");
 }
 
+// Pull the next pending question and send it to the background script.
 // Pull the next pending question and send it to the background script.
 async function processNextQuestion() {
   if (!isRunning || isPaused) return;
@@ -601,6 +620,7 @@ async function processNextQuestion() {
 }
 
 // Apply the result from the content script and advance the queue.
+// Apply the result from the content script and advance the queue.
 function handleQuestionComplete(result) {
   const question = questions.find((item) => item.id === result.questionId);
   if (!question || question.status === "completed" || question.status === "failed") {
@@ -639,6 +659,7 @@ function handleQuestionComplete(result) {
   }
 }
 
+// Export all questions with metadata to JSON (including normalized sources).
 // Export all questions with metadata to JSON (including normalized sources).
 function handleExport() {
   if (questions.length === 0) {
@@ -858,6 +879,7 @@ function handleClearAll() {
   addLog(t("messages.allCleared"), "info");
 }
 
+// Sync UI views with the current queue state.
 function updateUI() {
   updateStatistics();
   updateQuestionsList();
@@ -878,6 +900,7 @@ function updateStatValue(node, value) {
   }
 }
 
+// Update stats widgets + progress bar.
 function updateStatistics() {
   const total = questions.length;
   const done = questions.filter((q) => q.status === "completed" || q.status === "failed").length;
@@ -922,6 +945,7 @@ function updateStatistics() {
   }
 }
 
+// Render the list of questions and their statuses.
 function updateQuestionsList() {
   if (questions.length === 0) {
     questionsList.innerHTML = `
@@ -1049,6 +1073,7 @@ function updateControlButtons() {
   retryButtonContainer.style.display = hasFailed && !isRunning ? "flex" : "none";
 }
 
+// Append a log entry to the scrollable panel.
 function addLog(message, level = "info") {
   const entry = document.createElement("div");
   entry.className = `log-entry ${level}`;
@@ -1062,6 +1087,7 @@ function addLog(message, level = "info") {
   }
 }
 
+// Persist queue state to storage.
 function saveQuestions() {
   chrome.storage.local.set({ questions });
 }
@@ -1074,6 +1100,7 @@ function saveProviderSetting(value) {
   chrome.storage.local.set({ providerId: value });
 }
 
+// Load user settings from storage and apply to UI.
 async function loadSettings() {
   try {
     const stored = await chrome.storage.local.get(["reuseConversation", "providerId"]);
@@ -1102,6 +1129,7 @@ async function loadSettings() {
   }
 }
 
+// Load queued questions from storage and restore running state.
 async function loadQuestions() {
   try {
     const stored = await chrome.storage.local.get(["questions", "reuseConversation", "providerId"]);
@@ -1135,6 +1163,7 @@ async function loadQuestions() {
   }
 }
 
+// Placeholder for future web-search setting.
 function saveWebSearchSetting(value) {
   chrome.storage.local.set({ useWebSearch: value });
 }

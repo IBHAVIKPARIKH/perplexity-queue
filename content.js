@@ -1,3 +1,4 @@
+// Content script orchestrates question submission + answer extraction inside provider tabs.
 let currentQuestion = null;
 let currentAnswer = "";
 let currentSources = [];
@@ -5,8 +6,10 @@ let currentReferences = [];
 let isProcessing = false;
 let isParsing = false;
 let sseChunks = [];
+let lastPerplexityInput = null;
 const DEFAULT_PROVIDER_ID = (typeof CONFIG !== "undefined" && CONFIG.DEFAULT_PROVIDER) || "perplexity";
 
+// Allow unit tests to import helper functions in Node without the extension runtime.
 let providerHelpers = {};
 if (typeof require !== "undefined") {
   providerHelpers = require("./providers.js");
@@ -26,6 +29,7 @@ function getProviderConfig(providerId) {
   return { id: DEFAULT_PROVIDER_ID, label: "Perplexity", matches: ["https://www.perplexity.ai/*"] };
 }
 
+// Identify which provider matches the active page URL.
 function resolveProviderFromUrl(url) {
   if (typeof providerHelpers.resolveProviderByUrl === "function") return providerHelpers.resolveProviderByUrl(url);
   if (typeof resolveProviderByUrl === "function") return resolveProviderByUrl(url);
@@ -43,6 +47,7 @@ function getActiveProvider() {
   return getProviderConfig(activeProviderId || DEFAULT_PROVIDER_ID);
 }
 
+// Perplexity streams answers over SSE; inject the interceptor to parse those chunks.
 function injectSSEInterceptor() {
   if (getActiveProvider().id !== "perplexity") return;
 
@@ -61,12 +66,14 @@ function injectSSEInterceptor() {
   }
 }
 
+// Append incoming streaming data for Perplexity answers.
 function handleSSEData(chunk) {
   if (isProcessing && currentQuestion && getActiveProvider().id === "perplexity") {
     sseChunks.push(chunk);
   }
 }
 
+// Trigger parsing when the SSE stream completes.
 async function handleSSEDone() {
   if (
     isParsing ||
@@ -86,6 +93,7 @@ async function handleStreamEnd() {
   if (getActiveProvider().id !== "perplexity") return;
 }
 
+// Reduce Perplexity streaming chunks into a final answer with sources.
 async function parseSSEWithBackend() {
   if (!currentQuestion) return;
 
@@ -102,6 +110,7 @@ async function parseSSEWithBackend() {
   }
 }
 
+// Normalize a heterogeneous stream payload into plain text + sources.
 function extractAnswerFromChunks(chunks) {
   if (!Array.isArray(chunks) || chunks.length === 0) {
     return { text: "", sources: [] };
@@ -217,6 +226,7 @@ function sendQuestionResult(success, errorMessage = null) {
   sseChunks = [];
 }
 
+// Wait for a DOM element to appear by selector.
 function waitForElement(selector, timeout = 10000) {
   return new Promise((resolve, reject) => {
     const element = document.querySelector(selector);
@@ -241,6 +251,7 @@ function waitForElement(selector, timeout = 10000) {
   });
 }
 
+// Wait for any selector from a list to appear.
 function waitForElementFromSelectors(selectors = [], timeout = 10000) {
   if (typeof document === "undefined") return Promise.reject(new Error("DOM not available"));
   const root = document.body || document.documentElement;
@@ -299,6 +310,7 @@ function findElementsFromSelectors(selectors = []) {
   return found;
 }
 
+// Extract readable text from DOM nodes or plain objects.
 function extractTextFromNode(node) {
   if (!node) return "";
   if (typeof node === "string") return node.trim();
@@ -336,6 +348,7 @@ function getAnswerNodes(providerId) {
   return findElementsFromSelectors(provider?.selectors?.answer || []);
 }
 
+// Watch for the next assistant response in the UI.
 async function waitForAssistantMessage(providerId, previousCount = 0, timeout = 120000) {
   if (typeof document === "undefined") throw new Error("DOM not available");
   const start = Date.now();
@@ -377,6 +390,7 @@ async function waitForAssistantMessage(providerId, previousCount = 0, timeout = 
   });
 }
 
+// Set a prompt into a textarea or contenteditable input.
 function setInputValue(element, text) {
   if (!element) return false;
   if (typeof element.focus === "function") {
@@ -391,11 +405,7 @@ function setInputValue(element, text) {
   }
 
   if (element.getAttribute && element.getAttribute("contenteditable") === "true") {
-    element.textContent = "";
-    element.textContent = text;
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
+    return setContentEditableValue(element, text);
   }
 
   try {
@@ -406,6 +416,122 @@ function setInputValue(element, text) {
   }
 }
 
+// Best-effort update for Lexical/ProseMirror-style contenteditable inputs.
+function setContentEditableValue(element, text) {
+  try {
+    element.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    if (document.queryCommandSupported && document.queryCommandSupported("insertText")) {
+      document.execCommand("selectAll", false);
+      document.execCommand("insertText", false, text);
+    } else {
+      element.textContent = text;
+    }
+
+    element.dispatchEvent(
+      new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertText",
+        data: text,
+      }),
+    );
+    element.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: text,
+      }),
+    );
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  } catch (error) {
+    try {
+      element.textContent = text;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    } catch (innerError) {
+      return false;
+    }
+  }
+}
+
+function isElementDisabled(element) {
+  if (!element) return true;
+  if (element.matches?.(":disabled")) return true;
+  if (element.disabled) return true;
+  const ariaDisabled = element.getAttribute?.("aria-disabled");
+  if (ariaDisabled === "true") return true;
+  if (element.dataset?.state === "disabled") return true;
+  if (element.classList?.contains("pointer-events-none")) return true;
+  try {
+    const styles = window.getComputedStyle(element);
+    if (styles.pointerEvents === "none") return true;
+    if (styles.opacity && Number.parseFloat(styles.opacity) <= 0.2) return true;
+  } catch (error) {
+    // ignore style checks if unavailable
+  }
+  return false;
+}
+
+async function waitForEnabledElement(element, timeout = 10000) {
+  if (!element) return false;
+  if (!isElementDisabled(element)) return true;
+
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const observer = new MutationObserver(() => {
+      if (!isElementDisabled(element)) {
+        observer.disconnect();
+        resolve(true);
+      } else if (Date.now() - start >= timeout) {
+        observer.disconnect();
+        resolve(false);
+      }
+    });
+
+    observer.observe(element, {
+      attributes: true,
+      attributeFilter: ["disabled", "aria-disabled", "data-state", "class", "style"],
+    });
+
+    setTimeout(() => {
+      observer.disconnect();
+      resolve(!isElementDisabled(element));
+    }, timeout);
+  });
+}
+
+async function submitViaEnterKey() {
+  const input =
+    lastPerplexityInput ||
+    findElementFromSelectors([
+      '#ask-input[contenteditable="true"]',
+      'div[contenteditable="true"][role="textbox"]',
+      'div[contenteditable="true"][data-lexical-editor="true"]',
+      'div[contenteditable="true"]',
+    ]);
+  if (!input) return false;
+
+  try {
+    input.focus();
+    const keyboardEventInit = { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13 };
+    input.dispatchEvent(new KeyboardEvent("keydown", keyboardEventInit));
+    input.dispatchEvent(new KeyboardEvent("keypress", keyboardEventInit));
+    input.dispatchEvent(new KeyboardEvent("keyup", keyboardEventInit));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+// Fill the provider input using the configured selector list.
 async function fillPromptForProvider(providerId, question) {
   const provider = getProviderConfig(providerId);
   const input =
@@ -415,6 +541,7 @@ async function fillPromptForProvider(providerId, question) {
   return setInputValue(input, question);
 }
 
+// Click a submit button for non-Perplexity providers.
 async function clickSubmitForProvider(providerId) {
   const provider = getProviderConfig(providerId);
   let submit =
@@ -447,6 +574,7 @@ function extractAnswerFromNode(node) {
   return { text, sources };
 }
 
+// Attempt multiple click strategies for flaky web UIs.
 function clickElement(element) {
   if (!element) return false;
   try {
@@ -528,6 +656,7 @@ async function clickWithEvents(element) {
   element.click();
 }
 
+// Dedicated input logic for Perplexity's editor.
 async function inputPerplexityQuestion(question) {
   try {
     const input = await waitForElementFromSelectors(
@@ -544,12 +673,18 @@ async function inputPerplexityQuestion(question) {
       throw new Error("Perplexity input element not found");
     }
 
-    return setInputValue(input, question);
+    lastPerplexityInput = input;
+    const filled = setInputValue(input, question);
+    if (filled) {
+      await sleep(200);
+    }
+    return filled;
   } catch (error) {
     return false;
   }
 }
 
+// Dedicated submit logic for Perplexity's UI.
 async function submitPerplexityQuestion() {
   try {
     const submitBtn =
@@ -570,21 +705,25 @@ async function submitPerplexityQuestion() {
       throw new Error("Could not find Perplexity submit button");
     }
 
-    if (submitBtn.disabled) {
-      let attempts = 0;
-      while (submitBtn.disabled && attempts < 30) {
-        await sleep(100);
-        attempts++;
-      }
-      if (submitBtn.disabled) {
+    const enabled = await waitForEnabledElement(submitBtn, 10000);
+    if (!enabled) {
+      const submittedViaEnter = await submitViaEnterKey();
+      if (!submittedViaEnter) {
         throw new Error("Submit button remained disabled");
       }
+      await sleep(1000);
+      return true;
     }
 
     await clickElement(submitBtn);
     await sleep(1000);
     return true;
   } catch (error) {
+    const submittedViaEnter = await submitViaEnterKey();
+    if (submittedViaEnter) {
+      await sleep(1000);
+      return true;
+    }
     return false;
   }
 }
@@ -593,6 +732,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Primary entry point to drive question submission and capture answers.
 async function askQuestion(question, questionId, providerId) {
   const provider = getProviderConfig(providerId || activeProviderId);
   setActiveProvider(provider.id);
@@ -653,6 +793,7 @@ async function askQuestion(question, questionId, providerId) {
   }
 }
 
+// Ensure Perplexity stream interception is enabled early.
 function initializeContentScript() {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
@@ -663,6 +804,7 @@ function initializeContentScript() {
   }
 }
 
+// Listen for SSE stream events from injected.js.
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
@@ -686,7 +828,8 @@ if (typeof window !== "undefined") {
   });
 }
 
-  if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+// Respond to messages from the background script.
+if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "PING") {
       const pageProvider = resolveProviderFromUrl(typeof location !== "undefined" ? location.href : "");
@@ -720,6 +863,7 @@ if (typeof window !== "undefined") {
   });
 }
 
+// Kick off the content script when injected.
 if (typeof window !== "undefined") {
   initializeContentScript();
 }
