@@ -6,6 +6,7 @@ let currentReferences = [];
 let isProcessing = false;
 let isParsing = false;
 let sseChunks = [];
+let lastPerplexityInput = null;
 const DEFAULT_PROVIDER_ID = (typeof CONFIG !== "undefined" && CONFIG.DEFAULT_PROVIDER) || "perplexity";
 
 // Allow unit tests to import helper functions in Node without the extension runtime.
@@ -461,6 +462,63 @@ function setContentEditableValue(element, text) {
   }
 }
 
+function isElementDisabled(element) {
+  if (!element) return true;
+  if (element.disabled) return true;
+  const ariaDisabled = element.getAttribute?.("aria-disabled");
+  if (ariaDisabled === "true") return true;
+  if (element.dataset?.state === "disabled") return true;
+  return false;
+}
+
+async function waitForEnabledElement(element, timeout = 10000) {
+  if (!element) return false;
+  if (!isElementDisabled(element)) return true;
+
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const observer = new MutationObserver(() => {
+      if (!isElementDisabled(element)) {
+        observer.disconnect();
+        resolve(true);
+      } else if (Date.now() - start >= timeout) {
+        observer.disconnect();
+        resolve(false);
+      }
+    });
+
+    observer.observe(element, { attributes: true, attributeFilter: ["disabled", "aria-disabled", "data-state"] });
+
+    setTimeout(() => {
+      observer.disconnect();
+      resolve(!isElementDisabled(element));
+    }, timeout);
+  });
+}
+
+async function submitViaEnterKey() {
+  const input =
+    lastPerplexityInput ||
+    findElementFromSelectors([
+      '#ask-input[contenteditable="true"]',
+      'div[contenteditable="true"][role="textbox"]',
+      'div[contenteditable="true"][data-lexical-editor="true"]',
+      'div[contenteditable="true"]',
+    ]);
+  if (!input) return false;
+
+  try {
+    input.focus();
+    const keyboardEventInit = { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13 };
+    input.dispatchEvent(new KeyboardEvent("keydown", keyboardEventInit));
+    input.dispatchEvent(new KeyboardEvent("keypress", keyboardEventInit));
+    input.dispatchEvent(new KeyboardEvent("keyup", keyboardEventInit));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 // Fill the provider input using the configured selector list.
 async function fillPromptForProvider(providerId, question) {
   const provider = getProviderConfig(providerId);
@@ -603,6 +661,7 @@ async function inputPerplexityQuestion(question) {
       throw new Error("Perplexity input element not found");
     }
 
+    lastPerplexityInput = input;
     const filled = setInputValue(input, question);
     if (filled) {
       await sleep(200);
@@ -634,21 +693,25 @@ async function submitPerplexityQuestion() {
       throw new Error("Could not find Perplexity submit button");
     }
 
-    if (submitBtn.disabled) {
-      let attempts = 0;
-      while (submitBtn.disabled && attempts < 30) {
-        await sleep(100);
-        attempts++;
-      }
-      if (submitBtn.disabled) {
+    const enabled = await waitForEnabledElement(submitBtn, 10000);
+    if (!enabled) {
+      const submittedViaEnter = await submitViaEnterKey();
+      if (!submittedViaEnter) {
         throw new Error("Submit button remained disabled");
       }
+      await sleep(1000);
+      return true;
     }
 
     await clickElement(submitBtn);
     await sleep(1000);
     return true;
   } catch (error) {
+    const submittedViaEnter = await submitViaEnterKey();
+    if (submittedViaEnter) {
+      await sleep(1000);
+      return true;
+    }
     return false;
   }
 }
