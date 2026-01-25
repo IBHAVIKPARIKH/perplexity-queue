@@ -47,9 +47,16 @@ function getActiveProvider() {
   return getProviderConfig(activeProviderId || DEFAULT_PROVIDER_ID);
 }
 
+function isPerplexityStreamingEnabled() {
+  if (typeof CONFIG !== "undefined" && typeof CONFIG.PERPLEXITY_STREAMING === "boolean") {
+    return CONFIG.PERPLEXITY_STREAMING;
+  }
+  return false;
+}
+
 // Perplexity streams answers over SSE; inject the interceptor to parse those chunks.
 function injectSSEInterceptor() {
-  if (getActiveProvider().id !== "perplexity") return;
+  if (getActiveProvider().id !== "perplexity" || !isPerplexityStreamingEnabled()) return;
 
   try {
     const script = document.createElement("script");
@@ -68,7 +75,7 @@ function injectSSEInterceptor() {
 
 // Append incoming streaming data for Perplexity answers.
 function handleSSEData(chunk) {
-  if (isProcessing && currentQuestion && getActiveProvider().id === "perplexity") {
+  if (isProcessing && currentQuestion && getActiveProvider().id === "perplexity" && isPerplexityStreamingEnabled()) {
     sseChunks.push(chunk);
   }
 }
@@ -80,7 +87,8 @@ async function handleSSEDone() {
     !isProcessing ||
     !currentQuestion ||
     sseChunks.length === 0 ||
-    getActiveProvider().id !== "perplexity"
+    getActiveProvider().id !== "perplexity" ||
+    !isPerplexityStreamingEnabled()
   ) {
     return;
   }
@@ -90,12 +98,12 @@ async function handleSSEDone() {
 }
 
 async function handleStreamEnd() {
-  if (getActiveProvider().id !== "perplexity") return;
+  if (getActiveProvider().id !== "perplexity" || !isPerplexityStreamingEnabled()) return;
 }
 
 // Reduce Perplexity streaming chunks into a final answer with sources.
 async function parseSSEWithBackend() {
-  if (!currentQuestion) return;
+  if (!currentQuestion || !isPerplexityStreamingEnabled()) return;
 
   try {
     const { text, sources } = extractAnswerFromChunks(sseChunks);
@@ -747,6 +755,7 @@ async function askQuestion(question, questionId, providerId) {
 
   try {
     if (provider.id === "perplexity") {
+      const beforeCount = countAnswerNodes(provider.id);
       const inputOk = await inputPerplexityQuestion(question);
       if (!inputOk) {
         throw new Error("Failed to input question");
@@ -757,15 +766,24 @@ async function askQuestion(question, questionId, providerId) {
         throw new Error("Failed to submit question");
       }
 
-      setTimeout(() => {
-        if (isProcessing && currentQuestion && currentQuestion.questionId === questionId) {
-          if (currentAnswer) {
-            handleAnswerComplete();
-          } else {
-            sendQuestionResult(false, "Timeout waiting for answer");
+      if (isPerplexityStreamingEnabled()) {
+        setTimeout(() => {
+          if (isProcessing && currentQuestion && currentQuestion.questionId === questionId) {
+            if (currentAnswer) {
+              handleAnswerComplete();
+            } else {
+              sendQuestionResult(false, "Timeout waiting for answer");
+            }
           }
-        }
-      }, 120000);
+        }, 120000);
+      } else {
+        const latestMessageNode = await waitForAssistantMessage(provider.id, beforeCount);
+        const { text, sources } = extractAnswerFromNode(latestMessageNode);
+        currentAnswer = text || "No answer received.";
+        currentSources = sources || [];
+        currentReferences = [];
+        handleAnswerComplete();
+      }
     } else {
       const beforeCount = countAnswerNodes(provider.id);
       const inputOk = await fillPromptForProvider(provider.id, question);

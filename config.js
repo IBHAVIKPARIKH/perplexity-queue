@@ -4,6 +4,7 @@ const CONFIG = {
   APP_VERSION: "1.0.0",
   APP_NAME: "Batch Question Assistant",
   DEFAULT_PROVIDER: "perplexity",
+  PERPLEXITY_STREAMING: false,
 };
 
 if (typeof PROVIDERS !== "undefined") {
