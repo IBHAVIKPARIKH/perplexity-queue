@@ -1,3 +1,4 @@
+// Basic unit tests for content-script helper functions.
 const assert = require("assert");
 
 const {
@@ -61,13 +62,15 @@ function testNormalizeSourcesAddsDomainAndHandlesStrings() {
 
 function testResolveProviderFromUrlMatchesSupportedHosts() {
   const perplexity = resolveProviderFromUrl("https://www.perplexity.ai/search");
-  const chatgpt = resolveProviderFromUrl("https://chat.openai.com/g");
+  const chatgpt = resolveProviderFromUrl("https://chatgpt.com/g");
+  const chatgptLegacy = resolveProviderFromUrl("https://chat.openai.com/g");
   const gemini = resolveProviderFromUrl("https://gemini.google.com/app");
   const claude = resolveProviderFromUrl("https://claude.ai/chat/123");
   const fallback = resolveProviderFromUrl("https://unknown.example.com");
 
   assert.strictEqual(perplexity.id, "perplexity");
   assert.strictEqual(chatgpt.id, "chatgpt");
+  assert.strictEqual(chatgptLegacy.id, "chatgpt");
   assert.strictEqual(gemini.id, "gemini");
   assert.strictEqual(claude.id, "claude");
   assert.strictEqual(fallback.id, "perplexity");

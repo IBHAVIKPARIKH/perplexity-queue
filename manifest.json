@@ -13,6 +13,7 @@
   "host_permissions": [
     "https://www.perplexity.ai/*",
     "https://chat.openai.com/*",
+    "https://chatgpt.com/*",
     "https://gemini.google.com/*",
     "https://ai.google.com/*",
     "https://claude.ai/*",
@@ -26,6 +27,7 @@
       "matches": [
         "https://www.perplexity.ai/*",
         "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
         "https://gemini.google.com/*",
         "https://ai.google.com/*",
         "https://claude.ai/*"

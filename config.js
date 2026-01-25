@@ -1,3 +1,4 @@
+// Shared configuration constants for the extension.
 const CONFIG = {
   DEFAULT_SERVER_URL: "https://ai-assistant-api.aimegatron.com",
   APP_VERSION: "1.0.0",
