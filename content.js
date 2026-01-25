@@ -464,10 +464,19 @@ function setContentEditableValue(element, text) {
 
 function isElementDisabled(element) {
   if (!element) return true;
+  if (element.matches?.(":disabled")) return true;
   if (element.disabled) return true;
   const ariaDisabled = element.getAttribute?.("aria-disabled");
   if (ariaDisabled === "true") return true;
   if (element.dataset?.state === "disabled") return true;
+  if (element.classList?.contains("pointer-events-none")) return true;
+  try {
+    const styles = window.getComputedStyle(element);
+    if (styles.pointerEvents === "none") return true;
+    if (styles.opacity && Number.parseFloat(styles.opacity) <= 0.2) return true;
+  } catch (error) {
+    // ignore style checks if unavailable
+  }
   return false;
 }
 
@@ -487,7 +496,10 @@ async function waitForEnabledElement(element, timeout = 10000) {
       }
     });
 
-    observer.observe(element, { attributes: true, attributeFilter: ["disabled", "aria-disabled", "data-state"] });
+    observer.observe(element, {
+      attributes: true,
+      attributeFilter: ["disabled", "aria-disabled", "data-state", "class", "style"],
+    });
 
     setTimeout(() => {
       observer.disconnect();
